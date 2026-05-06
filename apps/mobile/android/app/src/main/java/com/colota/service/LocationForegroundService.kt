@@ -62,11 +62,14 @@ class LocationForegroundService : Service() {
     @Volatile private var locationRestartJob: Job? = null
     @Volatile private var trackingHeartbeatJob: Job? = null
     @Volatile private var screenOffDelayJob: Job? = null
+    @Volatile private var screenOffIdlePauseJob: Job? = null
     @Volatile private var lastFixAtMs: Long = 0L
     @Volatile private var motionDetector: MotionDetector? = null
     @Volatile private var lastKnownLocation: Location? = null
     @Volatile private var lastRequestedSyncIntervalSeconds: Int = -1
     @Volatile private var lastTrackingStartAtMs: Long = 0L
+    @Volatile private var screenOffIdleAnchorLocation: Location? = null
+    @Volatile private var screenOffIdlePaused: Boolean = false
 
     /** Debounces the burst of PROVIDERS_CHANGED broadcasts when system Location toggles (one per provider). */
     @Volatile private var lastBroadcastLocationEnabled: Boolean = true
@@ -149,6 +152,10 @@ class LocationForegroundService : Service() {
         private const val SCREEN_OFF_SYNC_INTERVAL_SECONDS = 600
         /** Skip the startup instant flush for a short window on FOSS screen-off starts. */
         private const val SCREEN_OFF_STARTUP_FLUSH_GUARD_MS = 60_000L
+        /** Pause GPS when screen-off movement stays within this radius for the full timeout. */
+        private const val SCREEN_OFF_IDLE_DISTANCE_METERS = 25f
+        /** Time window for screen-off idle detection before GPS is paused. */
+        private const val SCREEN_OFF_IDLE_TIMEOUT_MS = 5 * 60_000L
         /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
         private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
@@ -387,6 +394,8 @@ class LocationForegroundService : Service() {
         entryDelayJob = null
         screenOffDelayJob?.cancel()
         screenOffDelayJob = null
+        screenOffIdlePauseJob?.cancel()
+        screenOffIdlePauseJob = null
         pendingPauseZone = null
         unregisterWifiPause()
         cancelMotionlessCountdown()
@@ -510,6 +519,76 @@ class LocationForegroundService : Service() {
         }
     }
 
+    private fun shouldUseScreenOffIdlePause(): Boolean =
+        isFossProvider() &&
+            isScreenOff &&
+            !insidePauseZone &&
+            pendingPauseZone == null &&
+            !isWifiPaused &&
+            !isMotionlessPaused &&
+            !needsLocationStreamForProfiles()
+
+    private fun updateScreenOffIdlePausePolicy(location: Location) {
+        if (!shouldUseScreenOffIdlePause()) {
+            clearScreenOffIdlePauseTracking()
+            return
+        }
+        if (screenOffIdlePaused) return
+
+        val anchor = screenOffIdleAnchorLocation
+        if (anchor == null) {
+            screenOffIdleAnchorLocation = Location(location)
+            scheduleScreenOffIdlePause()
+            return
+        }
+
+        if (anchor.distanceTo(location) >= SCREEN_OFF_IDLE_DISTANCE_METERS) {
+            screenOffIdleAnchorLocation = Location(location)
+            scheduleScreenOffIdlePause()
+        } else if (screenOffIdlePauseJob == null) {
+            scheduleScreenOffIdlePause()
+        }
+    }
+
+    private fun scheduleScreenOffIdlePause() {
+        screenOffIdlePauseJob?.cancel()
+        val scope = serviceScope ?: return
+        screenOffIdlePauseJob = scope.launch {
+            delay(SCREEN_OFF_IDLE_TIMEOUT_MS)
+            withContext(Dispatchers.Main) {
+                screenOffIdlePauseJob = null
+                if (!shouldUseScreenOffIdlePause() || screenOffIdlePaused || !isLocationUpdatesRegistered()) return@withContext
+                screenOffIdlePaused = true
+                stopLocationUpdates()
+                motionDetector?.arm()
+                refreshNotificationForCurrentState()
+                AppLogger.i(TAG, "Screen-off idle pause active - GPS paused after ${SCREEN_OFF_IDLE_TIMEOUT_MS / 60000} min within ${SCREEN_OFF_IDLE_DISTANCE_METERS.toInt()}m")
+            }
+        }
+    }
+
+    private fun clearScreenOffIdlePauseTracking() {
+        screenOffIdlePauseJob?.cancel()
+        screenOffIdlePauseJob = null
+        screenOffIdleAnchorLocation = null
+    }
+
+    private fun clearScreenOffIdlePauseState() {
+        screenOffIdlePaused = false
+        screenOffIdleAnchorLocation = null
+        if (!profileManager.isStationary && !isMotionlessPaused) {
+            motionDetector?.disarm()
+        }
+    }
+
+    private fun resumeFromScreenOffIdlePause() {
+        if (!screenOffIdlePaused) return
+        clearScreenOffIdlePauseState()
+        setupLocationUpdates()
+        refreshNotificationForCurrentState()
+        AppLogger.i(TAG, "Screen-off idle pause cleared - GPS resumed")
+    }
+
     private fun applyScreenStateLocationPolicy() {
         if (!::config.isInitialized || !isFossProvider()) return
         if (!isLocationUpdatesRegistered()) return
@@ -550,6 +629,8 @@ class LocationForegroundService : Service() {
 
         screenOffDelayJob?.cancel()
         screenOffDelayJob = null
+        clearScreenOffIdlePauseTracking()
+        resumeFromScreenOffIdlePause()
         applyScreenStateLocationPolicy()
         applyScreenStateSyncPolicy()
     }
@@ -739,6 +820,7 @@ class LocationForegroundService : Service() {
         }
 
         applySpeedFallback(location)
+        updateScreenOffIdlePausePolicy(location)
 
         // Before distance filter so stationary locations still update the speed buffer
         profileManager.onLocationUpdate(location)
@@ -916,6 +998,7 @@ class LocationForegroundService : Service() {
 
     /** Stops GPS and updates state when an unmetered network becomes active. */
     private fun activateWifiPause() {
+        clearScreenOffIdlePauseTracking()
         isWifiPaused = true
         dbHelper.saveSetting(SettingsKeys.PAUSE_ZONE_WIFI_ACTIVE, "true")
         stopLocationUpdates()
@@ -1004,6 +1087,7 @@ class LocationForegroundService : Service() {
      * motion sensor is armed to resume it when the device moves again.
      */
     private fun startMotionlessCountdown(timeoutMinutes: Int) {
+        clearScreenOffIdlePauseTracking()
         motionlessJob?.cancel()
         motionlessJob = serviceScope?.launch {
             delay(timeoutMinutes * 60_000L)
@@ -1254,6 +1338,9 @@ class LocationForegroundService : Service() {
         if (isMotionlessPaused) {
             resumeFromMotionlessPause()
         }
+        if (screenOffIdlePaused) {
+            resumeFromScreenOffIdlePause()
+        }
         profileManager.onMotionDetected()
     }
 
@@ -1261,7 +1348,7 @@ class LocationForegroundService : Service() {
     private fun handleStationaryChanged(stationary: Boolean) {
         if (stationary) {
             motionDetector?.arm()
-        } else if (!isMotionlessPaused) {
+        } else if (!isMotionlessPaused && !screenOffIdlePaused) {
             motionDetector?.disarm()
         }
     }
