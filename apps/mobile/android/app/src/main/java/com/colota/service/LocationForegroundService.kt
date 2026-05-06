@@ -61,6 +61,7 @@ class LocationForegroundService : Service() {
     @Volatile private var locationUpdateCallback: LocationUpdateCallback? = null
     @Volatile private var locationRestartJob: Job? = null
     @Volatile private var trackingHeartbeatJob: Job? = null
+    @Volatile private var screenOffDelayJob: Job? = null
     @Volatile private var lastFixAtMs: Long = 0L
     @Volatile private var motionDetector: MotionDetector? = null
     @Volatile private var lastKnownLocation: Location? = null
@@ -92,7 +93,7 @@ class LocationForegroundService : Service() {
             if (screenOff == isScreenOff) return
             isScreenOff = screenOff
             AppLogger.d(TAG, "Screen state changed: off=$screenOff")
-            applyScreenStateLocationPolicy()
+            handleScreenStateChange(screenOff)
         }
     }
 
@@ -138,6 +139,8 @@ class LocationForegroundService : Service() {
         private const val TRACKING_HEARTBEAT_INTERVAL_MS = 5 * 60_000L
         /** FOSS-only battery saver when the screen is off. */
         private const val SCREEN_OFF_INTERVAL_MULTIPLIER = 3L
+        /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
+        private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
         const val ACTION_RECHECK_ZONE = "com.Colota.RECHECK_PAUSE_ZONE"
         const val ACTION_REFRESH_NOTIFICATION = "com.Colota.REFRESH_NOTIFICATION"
@@ -366,6 +369,8 @@ class LocationForegroundService : Service() {
         motionDetector?.disarm()
         entryDelayJob?.cancel()
         entryDelayJob = null
+        screenOffDelayJob?.cancel()
+        screenOffDelayJob = null
         pendingPauseZone = null
         unregisterWifiPause()
         cancelMotionlessCountdown()
@@ -485,6 +490,32 @@ class LocationForegroundService : Service() {
         AppLogger.i(TAG, "Applying screen-state interval: ${lastRequestedIntervalMs}ms -> ${nextIntervalMs}ms")
         stopLocationUpdates()
         setupLocationUpdates()
+    }
+
+    private fun handleScreenStateChange(screenOff: Boolean) {
+        if (!isFossProvider()) return
+
+        if (screenOff) {
+            scheduleScreenOffPolicy()
+            return
+        }
+
+        screenOffDelayJob?.cancel()
+        screenOffDelayJob = null
+        applyScreenStateLocationPolicy()
+    }
+
+    private fun scheduleScreenOffPolicy() {
+        screenOffDelayJob?.cancel()
+        val scope = serviceScope ?: return
+        screenOffDelayJob = scope.launch {
+            delay(SCREEN_OFF_DELAY_MS)
+            screenOffDelayJob = null
+            if (!isScreenOff) return@launch
+            withContext(Dispatchers.Main) {
+                applyScreenStateLocationPolicy()
+            }
+        }
     }
 
     /**
