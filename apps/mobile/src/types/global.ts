@@ -305,17 +305,17 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  interval: TRACKING_PRESETS.instant.interval,
-  distance: TRACKING_PRESETS.instant.distance,
+  interval: TRACKING_PRESETS.balanced.interval,
+  distance: TRACKING_PRESETS.balanced.distance,
   endpoint: "",
   fieldMap: DEFAULT_FIELD_MAP,
   customFields: [],
   apiTemplate: "custom",
-  syncInterval: TRACKING_PRESETS.instant.syncInterval,
-  retryInterval: TRACKING_PRESETS.instant.retryInterval,
+  syncInterval: TRACKING_PRESETS.balanced.syncInterval,
+  retryInterval: TRACKING_PRESETS.balanced.retryInterval,
   filterInaccurateLocations: false,
   accuracyThreshold: 50,
-  syncPreset: "instant",
+  syncPreset: "balanced",
   isOfflineMode: false,
   syncCondition: "any",
   syncSsid: "",
