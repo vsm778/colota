@@ -58,4 +58,5 @@ export { TrackMap } from "./features/inspector/TrackMap"
 // ============================================================================
 export { StatsCard } from "./features/settings/StatsCard"
 export { ConnectionSettings } from "./features/settings/ConnectionSettings"
-export { SyncStrategySettings } from "./features/settings/SyncStrategySettings"
+export { TrackingSettingsSection } from "./features/settings/TrackingSettingsSection"
+export { SyncSettingsSection } from "./features/settings/SyncSettingsSection"

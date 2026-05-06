@@ -18,7 +18,7 @@ interface WelcomeCardProps {
   onDismiss: () => void
   onStartTracking: () => void
   onNavigateToConnection: () => void
-  onNavigateToTrackingSync: () => void
+  onNavigateToTracking: () => void
   onNavigateToApiConfig: () => void
 }
 
@@ -75,7 +75,7 @@ export function WelcomeCard({
   onDismiss,
   onStartTracking,
   onNavigateToConnection,
-  onNavigateToTrackingSync,
+  onNavigateToTracking,
   onNavigateToApiConfig
 }: WelcomeCardProps) {
   const {
@@ -111,10 +111,10 @@ export function WelcomeCard({
             </Pressable>
           )}
           <Pressable
-            onPress={onNavigateToTrackingSync}
+            onPress={onNavigateToTracking}
             style={({ pressed }) => pressed && { opacity: colors.pressedOpacity }}
           >
-            <Text style={[styles.link, { color: colors.primaryDark }]}>Tracking presets</Text>
+            <Text style={[styles.link, { color: colors.primaryDark }]}>Tracking settings</Text>
           </Pressable>
         </View>
 

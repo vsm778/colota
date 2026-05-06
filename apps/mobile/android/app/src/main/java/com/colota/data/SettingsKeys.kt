@@ -11,4 +11,7 @@ object SettingsKeys {
     const val PAUSE_ZONE_NAME = "pause_zone_name"
     const val PAUSE_ZONE_WIFI_ACTIVE = "pause_zone_wifi_active"
     const val PAUSE_ZONE_MOTIONLESS_ACTIVE = "pause_zone_motionless_active"
+    const val SCREEN_ON_SYNC_INTERVAL = "screenOnSyncInterval"
+
+    const val DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS = 300
 }

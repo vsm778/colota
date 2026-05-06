@@ -68,6 +68,7 @@ class LocationForegroundService : Service() {
     @Volatile private var lastKnownLocation: Location? = null
     @Volatile private var lastRequestedSyncIntervalSeconds: Int = -1
     @Volatile private var lastTrackingStartAtMs: Long = 0L
+    @Volatile private var lastScreenOnSyncAtMs: Long = 0L
     @Volatile private var screenOffIdleAnchorLocation: Location? = null
     @Volatile private var screenOffIdlePaused: Boolean = false
 
@@ -104,6 +105,8 @@ class LocationForegroundService : Service() {
 
     /** Whether the currently-registered location request bypasses the OS-level distance filter. */
     @Volatile private var lastRequestedBypassOsFilter: Boolean = false
+    /** Whether the active provider request uses one-shot polling instead of a continuous GPS lock. */
+    @Volatile private var lastRequestedSingleShotMode: Boolean = false
 
     /**
      * Pause-zone state. Threading contract:
@@ -185,7 +188,11 @@ class LocationForegroundService : Service() {
         networkManager = NetworkManager(this)
         geofenceHelper = GeofenceHelper(this)
         secureStorage = SecureStorageHelper.getInstance(this)
-        syncManager = SyncManager(dbHelper, networkManager, serviceScope!!)
+        syncManager = SyncManager(dbHelper, networkManager, serviceScope!!) {
+            serviceScope?.launch(Dispatchers.Main) {
+                refreshNotificationForCurrentState()
+            }
+        }
         profileHelper = ProfileHelper(this)
         profileManager = ProfileManager(
             profileHelper, serviceScope!!,
@@ -410,7 +417,19 @@ class LocationForegroundService : Service() {
         serviceScope?.cancel()
         serviceScope = null
 
-        notificationManager.cancel(NotificationHelper.NOTIFICATION_ID)
+        val trackingEnabled = try {
+            dbHelper.getSetting(SettingsKeys.TRACKING_ENABLED, "false") == "true"
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to read tracking state during destroy: ${e.message}")
+            false
+        }
+
+        if (!trackingEnabled) {
+            notificationManager.cancel(NotificationHelper.NOTIFICATION_ID)
+        } else {
+            AppLogger.i(TAG, "Skipping notification removal on destroy - tracking still enabled")
+        }
+
         super.onDestroy()
     }
 
@@ -443,10 +462,12 @@ class LocationForegroundService : Service() {
         }
         val effectiveIntervalMs = getEffectiveIntervalMs()
         val effectiveSyncIntervalSeconds = getEffectiveSyncIntervalSeconds()
+        val useSingleShotMode = isFossProvider() && isScreenOff
         
-        AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, sync=${effectiveSyncIntervalSeconds}s, screenOff=$isScreenOff")
+        AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, sync=${effectiveSyncIntervalSeconds}s, screenOff=$isScreenOff, singleShot=$useSingleShotMode")
 
         try {
+            locationProvider.setSingleShotMode(useSingleShotMode)
             locationProvider.requestLocationUpdates(
                 intervalMs = effectiveIntervalMs,
                 minDistanceMeters = osMinDistance,
@@ -454,6 +475,7 @@ class LocationForegroundService : Service() {
                 callback = callback
             )
             lastRequestedBypassOsFilter = bypassOsFilter
+            lastRequestedSingleShotMode = useSingleShotMode
             lastRequestedIntervalMs = effectiveIntervalMs
             lastRequestedSyncIntervalSeconds = effectiveSyncIntervalSeconds
 
@@ -485,6 +507,7 @@ class LocationForegroundService : Service() {
         cancelTrackingHeartbeatLogger()
         locationUpdateCallback?.let { locationProvider.removeLocationUpdates(it) }
         locationUpdateCallback = null
+        lastRequestedSingleShotMode = false
         lastRequestedIntervalMs = -1L
     }
 
@@ -595,9 +618,10 @@ class LocationForegroundService : Service() {
         if (isWifiPaused || isMotionlessPaused) return
 
         val nextIntervalMs = getEffectiveIntervalMs()
-        if (nextIntervalMs == lastRequestedIntervalMs) return
+        val nextSingleShotMode = isScreenOff
+        if (nextIntervalMs == lastRequestedIntervalMs && nextSingleShotMode == lastRequestedSingleShotMode) return
 
-        AppLogger.i(TAG, "Applying screen-state interval: ${lastRequestedIntervalMs}ms -> ${nextIntervalMs}ms")
+        AppLogger.i(TAG, "Applying screen-state interval: ${lastRequestedIntervalMs}ms -> ${nextIntervalMs}ms, singleShot=$lastRequestedSingleShotMode -> $nextSingleShotMode")
         stopLocationUpdates()
         setupLocationUpdates()
     }
@@ -633,6 +657,24 @@ class LocationForegroundService : Service() {
         resumeFromScreenOffIdlePause()
         applyScreenStateLocationPolicy()
         applyScreenStateSyncPolicy()
+        maybeFlushQueueOnScreenOn()
+    }
+
+    private fun maybeFlushQueueOnScreenOn(nowElapsedMs: Long = SystemClock.elapsedRealtime()) {
+        if (!shouldFlushQueueOnScreenOn(nowElapsedMs)) return
+        lastScreenOnSyncAtMs = nowElapsedMs
+        AppLogger.i(TAG, "Screen-on sync triggered")
+        serviceScope?.launch { syncManager.manualFlush() }
+    }
+
+    private fun shouldFlushQueueOnScreenOn(nowElapsedMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        if (!::config.isInitialized) return false
+        val minIntervalMs = config.screenOnSyncIntervalSeconds * 1000L
+        if (minIntervalMs <= 0L) return false
+        if (config.isOfflineMode || config.endpoint.isBlank()) return false
+        if (!syncManager.isSyncAllowed()) return false
+        if (syncManager.getCachedQueuedCount() <= 0) return false
+        return (nowElapsedMs - lastScreenOnSyncAtMs) >= minIntervalMs
     }
 
     private fun scheduleScreenOffPolicy() {

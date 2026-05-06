@@ -12,7 +12,8 @@ export type RootStackParamList = {
   Dashboard: undefined
   Settings: undefined
   Connection: undefined
-  "Tracking & Sync": undefined
+  Tracking: undefined
+  Sync: undefined
   Appearance: undefined
   "API Config": undefined
   "Auth Settings": undefined

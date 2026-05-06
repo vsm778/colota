@@ -33,7 +33,8 @@ import {
   OfflineMapsScreen,
   AppearanceScreen,
   ConnectionScreen,
-  TrackingSyncScreen
+  TrackingScreen,
+  SyncScreen
 } from "./src/screens/"
 import { BottomTabBar } from "./src/components"
 import { loadDisplayPreferences } from "./src/utils/geo"
@@ -147,9 +148,14 @@ const SCREEN_CONFIG: readonly ScreenConfig[] = [
     title: "Connection"
   },
   {
-    name: "Tracking & Sync",
-    component: TrackingSyncScreen,
-    title: "Tracking & Sync"
+    name: "Tracking",
+    component: TrackingScreen,
+    title: "Tracking"
+  },
+  {
+    name: "Sync",
+    component: SyncScreen,
+    title: "Sync"
   }
 ]
 

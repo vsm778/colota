@@ -15,6 +15,12 @@ import android.os.Looper
 interface LocationProvider {
 
     /**
+     * Hint for providers that can switch between continuous updates and lower-power polling.
+     * Default implementation is a no-op.
+     */
+    fun setSingleShotMode(enabled: Boolean) {}
+
+    /**
      * Request continuous location updates.
      *
      * @param intervalMs        Desired update interval in milliseconds.

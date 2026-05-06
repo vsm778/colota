@@ -8,6 +8,7 @@ package com.Colota.service
 import android.content.Intent
 import android.os.Bundle
 import com.Colota.data.DatabaseHelper
+import com.Colota.data.SettingsKeys
 import com.Colota.sync.ApiFormat
 import com.facebook.react.bridge.ReadableMap
 import org.json.JSONObject
@@ -23,6 +24,7 @@ data class ServiceConfig(
     val accuracyThreshold: Float = 50.0f,
     val filterInaccurateLocations: Boolean = false,
     val retryIntervalSeconds: Int = 30,
+    val screenOnSyncIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
     val isOfflineMode: Boolean = false,
     val syncCondition: String = "any",
     val syncSsid: String = "",
@@ -46,6 +48,8 @@ data class ServiceConfig(
                 accuracyThreshold = saved["accuracyThreshold"]?.toFloatOrNull() ?: 50.0f,
                 filterInaccurateLocations = saved["filterInaccurateLocations"]?.toBoolean() ?: false,
                 retryIntervalSeconds = saved["retryInterval"]?.toIntOrNull() ?: 30,
+                screenOnSyncIntervalSeconds = saved[SettingsKeys.SCREEN_ON_SYNC_INTERVAL]?.toIntOrNull()
+                    ?: SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
                 isOfflineMode = saved["isOfflineMode"]?.toBoolean() ?: false,
                 syncCondition = saved["syncCondition"] ?: if (saved["isWifiOnlySync"]?.toBoolean() == true) "wifi_any" else "any",
                 syncSsid = saved["syncSsid"] ?: "",
@@ -91,6 +95,7 @@ data class ServiceConfig(
                 accuracyThreshold = config.getDoubleOrNull("accuracyThreshold")?.toFloat() ?: dbConfig.accuracyThreshold,
                 filterInaccurateLocations = config.getBooleanOrNull("filterInaccurateLocations") ?: dbConfig.filterInaccurateLocations,
                 retryIntervalSeconds = config.getIntOrNull("retryInterval") ?: dbConfig.retryIntervalSeconds,
+                screenOnSyncIntervalSeconds = config.getIntOrNull("screenOnSyncInterval") ?: dbConfig.screenOnSyncIntervalSeconds,
                 isOfflineMode = config.getBooleanOrNull("isOfflineMode") ?: dbConfig.isOfflineMode,
                 syncCondition = config.getStringOrNull("syncCondition") ?: dbConfig.syncCondition,
                 syncSsid = config.getStringOrNull("syncSsid") ?: dbConfig.syncSsid,
@@ -113,6 +118,7 @@ data class ServiceConfig(
                 accuracyThreshold = extras.getFloatOrDefault("accuracyThreshold", dbConfig.accuracyThreshold),
                 filterInaccurateLocations = extras.getBooleanOrDefault("filterInaccurateLocations", dbConfig.filterInaccurateLocations),
                 retryIntervalSeconds = extras.getIntOrDefault("retryInterval", dbConfig.retryIntervalSeconds),
+                screenOnSyncIntervalSeconds = extras.getIntOrDefault("screenOnSyncInterval", dbConfig.screenOnSyncIntervalSeconds),
                 isOfflineMode = extras.getBooleanOrDefault("isOfflineMode", dbConfig.isOfflineMode),
                 syncCondition = extras.getStringOrDefault("syncCondition", dbConfig.syncCondition) ?: "any",
                 syncSsid = extras.getStringOrDefault("syncSsid", dbConfig.syncSsid) ?: "",
@@ -135,6 +141,7 @@ data class ServiceConfig(
             putExtra("accuracyThreshold", accuracyThreshold)
             putExtra("filterInaccurateLocations", filterInaccurateLocations)
             putExtra("retryInterval", retryIntervalSeconds)
+            putExtra("screenOnSyncInterval", screenOnSyncIntervalSeconds)
             putExtra("isOfflineMode", isOfflineMode)
             putExtra("syncCondition", syncCondition)
             putExtra("syncSsid", syncSsid)

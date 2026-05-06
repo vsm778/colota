@@ -35,6 +35,35 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class LocationForegroundServiceTest {
 
+    private class NativeLocationProvider : LocationProvider {
+        var singleShotMode: Boolean? = null
+        var lastIntervalMs: Long? = null
+        var lastMinDistanceMeters: Float? = null
+
+        override fun setSingleShotMode(enabled: Boolean) {
+            singleShotMode = enabled
+        }
+
+        override fun requestLocationUpdates(
+            intervalMs: Long,
+            minDistanceMeters: Float,
+            looper: android.os.Looper,
+            callback: LocationUpdateCallback
+        ) {
+            lastIntervalMs = intervalMs
+            lastMinDistanceMeters = minDistanceMeters
+        }
+
+        override fun removeLocationUpdates(callback: LocationUpdateCallback) = Unit
+
+        override fun getLastLocation(
+            onSuccess: (Location?) -> Unit,
+            onFailure: (Exception) -> Unit
+        ) {
+            onSuccess(null)
+        }
+    }
+
     private lateinit var locationProvider: LocationProvider
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var geofenceHelper: GeofenceHelper
@@ -545,6 +574,24 @@ class LocationForegroundServiceTest {
         invokeSetupLocationUpdates()
 
         verify { service.stopSelf() }
+    }
+
+    @Test
+    fun `onDestroy cancels tracking notification when tracking is disabled`() {
+        every { dbHelper.getSetting("tracking_enabled", "false") } returns "false"
+
+        invokeOnDestroy()
+
+        verify { androidNotificationManager.cancel(NotificationHelper.NOTIFICATION_ID) }
+    }
+
+    @Test
+    fun `onDestroy keeps tracking notification when tracking is still enabled`() {
+        every { dbHelper.getSetting("tracking_enabled", "false") } returns "true"
+
+        invokeOnDestroy()
+
+        verify(exactly = 0) { androidNotificationManager.cancel(NotificationHelper.NOTIFICATION_ID) }
     }
 
     // =========================================================================
@@ -1950,6 +1997,37 @@ class LocationForegroundServiceTest {
         verify { locationProvider.requestLocationUpdates(any(), any(), any(), any()) }
     }
 
+    @Test
+    fun `setupLocationUpdates uses single-shot polling for foss screen-off tracking`() {
+        val fossProvider = NativeLocationProvider()
+        setField("locationProvider", fossProvider)
+        setField("isScreenOff", true)
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            minUpdateDistance = 2f,
+            filterInaccurateLocations = false
+        ))
+
+        invokeSetupLocationUpdates()
+
+        assertEquals(true, fossProvider.singleShotMode)
+        assertEquals(60_000L, fossProvider.lastIntervalMs)
+        assertEquals(2f, fossProvider.lastMinDistanceMeters)
+    }
+
+    @Test
+    fun `setupLocationUpdates keeps continuous mode for foss screen-on tracking`() {
+        val fossProvider = NativeLocationProvider()
+        setField("locationProvider", fossProvider)
+        setField("isScreenOff", false)
+
+        invokeSetupLocationUpdates()
+
+        assertEquals(false, fossProvider.singleShotMode)
+        assertEquals(5000L, fossProvider.lastIntervalMs)
+    }
+
     // =========================================================================
     // WiFi pause event reason
     // =========================================================================
@@ -1999,6 +2077,51 @@ class LocationForegroundServiceTest {
     // =========================================================================
     // enterPauseZone - flush respects sync condition
     // =========================================================================
+
+    @Test
+    fun `screen on flushes queued locations when rate limit allows`() = runServiceTest {
+        every { syncManager.isSyncAllowed() } returns true
+        every { syncManager.getCachedQueuedCount() } returns 3
+        setField("lastScreenOnSyncAtMs", 0L)
+
+        invokeMaybeFlushQueueOnScreenOn(600_000L)
+        advanceUntilIdle()
+
+        coVerify { syncManager.manualFlush() }
+        assertEquals(600_000L, getField("lastScreenOnSyncAtMs"))
+    }
+
+    @Test
+    fun `screen on flush is rate limited`() = runServiceTest {
+        every { syncManager.isSyncAllowed() } returns true
+        every { syncManager.getCachedQueuedCount() } returns 3
+        setField("lastScreenOnSyncAtMs", 500_000L)
+
+        invokeMaybeFlushQueueOnScreenOn(550_000L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { syncManager.manualFlush() }
+        assertEquals(500_000L, getField("lastScreenOnSyncAtMs"))
+    }
+
+    @Test
+    fun `screen on flush is disabled when screen on sync interval is zero`() = runServiceTest {
+        every { syncManager.isSyncAllowed() } returns true
+        every { syncManager.getCachedQueuedCount() } returns 3
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            filterInaccurateLocations = true,
+            accuracyThreshold = 50.0f,
+            syncIntervalSeconds = 0,
+            screenOnSyncIntervalSeconds = 0
+        ))
+
+        invokeMaybeFlushQueueOnScreenOn(600_000L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { syncManager.manualFlush() }
+    }
 
     @Test
     fun `enterPauseZone flushes queue when sync is allowed`() = testScope.runTest {
@@ -2125,6 +2248,14 @@ class LocationForegroundServiceTest {
         )
         method.isAccessible = true
         method.invoke(service, zone)
+    }
+
+    private fun invokeMaybeFlushQueueOnScreenOn(nowElapsedMs: Long) {
+        val method = LocationForegroundService::class.java.getDeclaredMethod(
+            "maybeFlushQueueOnScreenOn", Long::class.javaPrimitiveType
+        )
+        method.isAccessible = true
+        method.invoke(service, nowElapsedMs)
     }
 
     private fun geofence(

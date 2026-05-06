@@ -19,7 +19,8 @@ import org.json.JSONObject
 class SyncManager(
     private val dbHelper: DatabaseHelper,
     private val networkManager: NetworkManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val onQueueStateChanged: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "SyncManager"
@@ -134,6 +135,7 @@ class SyncManager(
         val queueId = dbHelper.addToQueue(locationId, payload.toString())
 
         invalidateQueueCache()
+        notifyQueueStateChanged()
 
         if (endpoint.isBlank()) {
             AppLogger.d(TAG, "Queued location $locationId - no endpoint configured")
@@ -150,6 +152,7 @@ class SyncManager(
                 dbHelper.removeFromQueueByLocationId(locationId)
                 invalidateQueueCache()
                 lastSuccessfulSyncTime = System.currentTimeMillis()
+                notifyQueueStateChanged()
             } else {
                 dbHelper.incrementRetryCount(queueId, "Send failed")
             }
@@ -290,7 +293,12 @@ class SyncManager(
 
         if (totalSucceeded > 0) {
             lastSuccessfulSyncTime = System.currentTimeMillis()
+            notifyQueueStateChanged()
         }
+    }
+
+    private fun notifyQueueStateChanged() {
+        onQueueStateChanged?.invoke()
     }
 
     private fun calculateNextSyncDelay(): Long {

@@ -135,7 +135,7 @@ describe("SettingsScreen", () => {
     expect(getByText("Offline - saved locally")).toBeTruthy()
   })
 
-  it("shows the preset label as the Sync Strategy summary", () => {
+  it("shows the preset label as the Tracking summary", () => {
     mockSettings = { ...DEFAULT_SETTINGS, syncPreset: "balanced" }
 
     const { getByText } = render(<SettingsScreen {...mockProps} />)
@@ -143,7 +143,7 @@ describe("SettingsScreen", () => {
     expect(getByText(/Balanced/)).toBeTruthy()
   })
 
-  it("shows a custom summary when syncPreset is custom", () => {
+  it("shows a custom summary when tracking interval differs from presets", () => {
     mockSettings = { ...DEFAULT_SETTINGS, syncPreset: "custom", interval: 45 }
 
     const { getByText } = render(<SettingsScreen {...mockProps} />)
@@ -169,12 +169,20 @@ describe("SettingsScreen", () => {
     expect(mockNavigate).toHaveBeenCalledWith("Connection")
   })
 
-  it("navigates to Tracking & Sync", () => {
+  it("navigates to Tracking", () => {
     const { getByText } = render(<SettingsScreen {...mockProps} />)
 
-    fireEvent.press(getByText("Tracking & Sync"))
+    fireEvent.press(getByText("Tracking"))
 
-    expect(mockNavigate).toHaveBeenCalledWith("Tracking & Sync")
+    expect(mockNavigate).toHaveBeenCalledWith("Tracking")
+  })
+
+  it("navigates to Sync", () => {
+    const { getByText } = render(<SettingsScreen {...mockProps} />)
+
+    fireEvent.press(getByText("Sync"))
+
+    expect(mockNavigate).toHaveBeenCalledWith("Sync")
   })
 
   it("navigates to Tracking Profiles", () => {

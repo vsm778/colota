@@ -112,6 +112,7 @@ describe("NativeLocationService", () => {
         fieldMap: { lat: "lat", lon: "lon", acc: "acc" },
         syncInterval: 0,
         retryInterval: 30,
+        screenOnSyncInterval: 300,
         filterInaccurateLocations: false,
         accuracyThreshold: 50,
         isOfflineMode: false,
@@ -130,6 +131,7 @@ describe("NativeLocationService", () => {
         expect.objectContaining({
           interval: 5000,
           minUpdateDistance: 10,
+          screenOnSyncInterval: 300,
           httpMethod: "POST",
           apiTemplate: "custom"
         })
@@ -144,6 +146,7 @@ describe("NativeLocationService", () => {
         fieldMap: { lat: "lat", lon: "lon", acc: "accuracy" },
         syncInterval: 0,
         retryInterval: 30,
+        screenOnSyncInterval: 300,
         filterInaccurateLocations: false,
         accuracyThreshold: 50,
         isOfflineMode: false,
@@ -174,6 +177,7 @@ describe("NativeLocationService", () => {
         fieldMap: { lat: "lat", lon: "lon", acc: "acc" },
         syncInterval: 0,
         retryInterval: 30,
+        screenOnSyncInterval: 300,
         filterInaccurateLocations: false,
         accuracyThreshold: 50,
         isOfflineMode: false,

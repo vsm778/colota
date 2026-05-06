@@ -59,6 +59,11 @@ describe("SettingsService", () => {
       expect(mockSaveSetting).toHaveBeenCalledWith("syncInterval", "300")
     })
 
+    it("saves screenOnSyncInterval as string number", async () => {
+      await SettingsService.updateSetting("screenOnSyncInterval", 300)
+      expect(mockSaveSetting).toHaveBeenCalledWith("screenOnSyncInterval", "300")
+    })
+
     it("saves endpoint as string", async () => {
       await SettingsService.updateSetting("endpoint", "https://example.com/api")
       expect(mockSaveSetting).toHaveBeenCalledWith("endpoint", "https://example.com/api")

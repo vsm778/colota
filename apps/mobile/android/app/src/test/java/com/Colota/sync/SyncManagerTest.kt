@@ -22,13 +22,15 @@ class SyncManagerTest {
     private lateinit var networkManager: NetworkManager
     private lateinit var scope: TestScope
     private lateinit var syncManager: SyncManager
+    private var queueStateChangedCalls = 0
 
     @Before
     fun setUp() {
         dbHelper = mockk(relaxed = true)
         networkManager = mockk(relaxed = true)
         scope = TestScope(UnconfinedTestDispatcher())
-        syncManager = SyncManager(dbHelper, networkManager, scope)
+        queueStateChangedCalls = 0
+        syncManager = SyncManager(dbHelper, networkManager, scope) { queueStateChangedCalls++ }
 
         mockkObject(AppLogger)
         every { AppLogger.d(any(), any()) } just Runs
@@ -358,6 +360,26 @@ class SyncManagerTest {
         assertTrue(syncManager.lastSuccessfulSyncTime > 0)
     }
 
+    @Test
+    fun `queueAndSend notifies queue state changes on enqueue and successful instant send`() = scope.runTest {
+        syncManager.updateConfig(
+            endpoint = "https://example.com",
+            syncIntervalSeconds = 0,
+            retryIntervalSeconds = 30,
+            isOfflineMode = false,
+            syncCondition = "any",
+            syncSsid = "",
+            authHeaders = emptyMap()
+        )
+
+        coEvery { networkManager.isNetworkAvailable() } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+
+        syncManager.queueAndSend(1L, JSONObject().put("lat", 52.0))
+
+        assertEquals(2, queueStateChangedCalls)
+    }
+
     // --- manualFlush ---
 
     @Test
@@ -399,6 +421,29 @@ class SyncManagerTest {
 
         coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any()) }
         verify { dbHelper.removeBatchFromQueue(listOf(1L)) }
+    }
+
+    @Test
+    fun `manualFlush notifies queue state change after successful batch drain`() = scope.runTest {
+        syncManager.updateConfig(
+            endpoint = "https://example.com",
+            syncIntervalSeconds = 300,
+            retryIntervalSeconds = 30,
+            isOfflineMode = false,
+            syncCondition = "any",
+            syncSsid = "",
+            authHeaders = emptyMap()
+        )
+
+        val queued = listOf(
+            QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)
+        )
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+
+        syncManager.manualFlush()
+
+        assertEquals(1, queueStateChangedCalls)
     }
 
     @Test

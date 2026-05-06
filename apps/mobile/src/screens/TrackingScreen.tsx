@@ -11,9 +11,9 @@ import { useAutoSave } from "../hooks/useAutoSave"
 import { useTracking } from "../contexts/TrackingProvider"
 import { FloatingSaveIndicator } from "../components/ui/FloatingSaveIndicator"
 import { Container } from "../components"
-import { SyncStrategySettings } from "../components/features/settings/SyncStrategySettings"
+import { TrackingSettingsSection } from "../components/features/settings/TrackingSettingsSection"
 
-export function TrackingSyncScreen({}: ScreenProps) {
+export function TrackingScreen({}: ScreenProps) {
   const { settings, setSettings, updateSettingsLocal, restartTracking } = useTracking()
   const { colors } = useTheme()
   const { saving, saveSuccess, debouncedSaveAndRestart, immediateSaveAndRestart } = useAutoSave()
@@ -45,7 +45,7 @@ export function TrackingSyncScreen({}: ScreenProps) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <SyncStrategySettings
+        <TrackingSettingsSection
           settings={settings}
           onSettingsChange={updateSettingsLocal}
           onDebouncedSave={handleDebouncedSave}

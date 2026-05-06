@@ -46,7 +46,7 @@ const defaultProps = {
   onDismiss: jest.fn(),
   onStartTracking: jest.fn(),
   onNavigateToConnection: jest.fn(),
-  onNavigateToTrackingSync: jest.fn(),
+  onNavigateToTracking: jest.fn(),
   onNavigateToApiConfig: jest.fn()
 }
 
@@ -82,10 +82,10 @@ describe("WelcomeCard", () => {
       expect(getByText("API field mapping")).toBeTruthy()
     })
 
-    it("shows Tracking presets link", () => {
+    it("shows Tracking settings link", () => {
       const { getByText } = render(<WelcomeCard {...defaultProps} />)
 
-      expect(getByText("Tracking presets")).toBeTruthy()
+      expect(getByText("Tracking settings")).toBeTruthy()
     })
   })
 
@@ -106,10 +106,10 @@ describe("WelcomeCard", () => {
       expect(queryByText("API field mapping")).toBeNull()
     })
 
-    it("still shows Tracking presets link", () => {
+    it("still shows Tracking settings link", () => {
       const { getByText } = render(<WelcomeCard {...defaultProps} />)
 
-      expect(getByText("Tracking presets")).toBeTruthy()
+      expect(getByText("Tracking settings")).toBeTruthy()
     })
 
     it("still shows Start tracking checklist item", () => {
@@ -127,12 +127,12 @@ describe("WelcomeCard", () => {
     expect(defaultProps.onDismiss).toHaveBeenCalledTimes(1)
   })
 
-  it("calls onNavigateToTrackingSync when Tracking presets is pressed", () => {
+  it("calls onNavigateToTracking when Tracking settings is pressed", () => {
     const { getByText } = render(<WelcomeCard {...defaultProps} />)
 
-    fireEvent.press(getByText("Tracking presets"))
+    fireEvent.press(getByText("Tracking settings"))
 
-    expect(defaultProps.onNavigateToTrackingSync).toHaveBeenCalledTimes(1)
+    expect(defaultProps.onNavigateToTracking).toHaveBeenCalledTimes(1)
   })
 
   it("calls onNavigateToConnection when Configure your server endpoint is pressed", () => {

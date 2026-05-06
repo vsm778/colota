@@ -242,6 +242,8 @@ export interface TrackingPresetConfig {
   batteryImpact: BatteryImpact
 }
 
+export const DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS = 300
+
 export const TRACKING_PRESETS = {
   instant: {
     interval: 5,
@@ -296,6 +298,7 @@ export interface Settings {
   // Sync & Upload
   syncInterval: number
   retryInterval: number
+  screenOnSyncInterval: number
   isOfflineMode: boolean
   syncCondition: SyncCondition
   syncSsid: string
@@ -313,6 +316,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiTemplate: "custom",
   syncInterval: TRACKING_PRESETS.balanced.syncInterval,
   retryInterval: TRACKING_PRESETS.balanced.retryInterval,
+  screenOnSyncInterval: DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
   filterInaccurateLocations: false,
   accuracyThreshold: 50,
   syncPreset: "balanced",

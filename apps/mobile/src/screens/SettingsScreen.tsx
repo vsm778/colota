@@ -75,12 +75,29 @@ export function SettingsScreen({ navigation }: Props) {
   }, [settings.isOfflineMode, settings.endpoint])
 
   const syncSummary = useMemo(() => {
-    const preset = settings.syncPreset
-    if (preset !== "custom" && TRACKING_PRESETS[preset]) {
+    const preset = (Object.keys(TRACKING_PRESETS) as (keyof typeof TRACKING_PRESETS)[]).find(
+      (name) =>
+        TRACKING_PRESETS[name].interval === settings.interval &&
+        TRACKING_PRESETS[name].distance === settings.distance
+    )
+    if (preset) {
       return `${TRACKING_PRESETS[preset].label} · every ${settings.interval}s`
     }
     return `Custom · every ${settings.interval}s`
-  }, [settings.syncPreset, settings.interval])
+  }, [settings.interval, settings.distance])
+
+  const uploadSummary = useMemo(() => {
+    if (settings.isOfflineMode) return "Offline only"
+    const cadence = settings.syncInterval === 0 ? "Instant" : `Every ${settings.syncInterval}s`
+    const condition = settings.syncCondition === "any"
+      ? "any network"
+      : settings.syncCondition === "wifi_any"
+        ? "Wi-Fi"
+        : settings.syncCondition === "wifi_ssid"
+          ? (settings.syncSsid ? `SSID ${settings.syncSsid}` : "SSID restricted")
+          : "VPN"
+    return `${cadence} · ${condition}`
+  }, [settings.isOfflineMode, settings.syncInterval, settings.syncCondition, settings.syncSsid])
 
   const apiSummary = useMemo(() => {
     const template = settings.apiTemplate
@@ -121,11 +138,19 @@ export function SettingsScreen({ navigation }: Props) {
             />
             <Divider />
             <ListItem
-              testID="nav-tracking-sync"
+              testID="nav-tracking"
               icon={Navigation}
-              label="Tracking & Sync"
+              label="Tracking"
               sub={syncSummary}
-              onPress={() => navigation.navigate("Tracking & Sync")}
+              onPress={() => navigation.navigate("Tracking")}
+            />
+            <Divider />
+            <ListItem
+              testID="nav-sync"
+              icon={Navigation}
+              label="Sync"
+              sub={uploadSummary}
+              onPress={() => navigation.navigate("Sync")}
             />
             {!settings.isOfflineMode && (
               <>

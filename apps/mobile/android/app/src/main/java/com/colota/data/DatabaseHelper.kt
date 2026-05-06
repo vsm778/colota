@@ -165,6 +165,7 @@ class DatabaseHelper private constructor(context: Context) :
             "accuracyThreshold" to "50.0",
             "filterInaccurateLocations" to "false",
             "retryInterval" to "30",
+            SettingsKeys.SCREEN_ON_SYNC_INTERVAL to SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS.toString(),
             "isOfflineMode" to "false",
             "syncCondition" to "any",
             "syncSsid" to "",

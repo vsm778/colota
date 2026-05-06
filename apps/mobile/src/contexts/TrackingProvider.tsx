@@ -56,6 +56,10 @@ function parseRawSettings(allRaw: Record<string, string>): Settings {
 
     retryInterval: allRaw.retryInterval ? parseInt(allRaw.retryInterval, 10) : DEFAULT_SETTINGS.retryInterval,
 
+    screenOnSyncInterval: allRaw.screenOnSyncInterval
+      ? parseInt(allRaw.screenOnSyncInterval, 10)
+      : DEFAULT_SETTINGS.screenOnSyncInterval,
+
     accuracyThreshold: allRaw.accuracyThreshold
       ? parseFloat(allRaw.accuracyThreshold)
       : DEFAULT_SETTINGS.accuracyThreshold,

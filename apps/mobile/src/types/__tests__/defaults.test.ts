@@ -65,6 +65,7 @@ describe("DEFAULT_SETTINGS", () => {
       "apiTemplate",
       "syncInterval",
       "retryInterval",
+      "screenOnSyncInterval",
       "isOfflineMode",
       "syncPreset",
       "filterInaccurateLocations",
