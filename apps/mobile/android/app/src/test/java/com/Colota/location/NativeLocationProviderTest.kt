@@ -7,9 +7,10 @@ class NativeLocationProviderTest {
 
     @Test
     fun `single-shot timeout uses short bounded window`() {
-        assertEquals(5_000L, NativeLocationProvider.calculateSingleShotTimeoutMs(30_000L))
+        assertEquals(4_000L, NativeLocationProvider.calculateSingleShotTimeoutMs(5_000L))
+        assertEquals(7_500L, NativeLocationProvider.calculateSingleShotTimeoutMs(30_000L))
         assertEquals(10_000L, NativeLocationProvider.calculateSingleShotTimeoutMs(60_000L))
-        assertEquals(12_000L, NativeLocationProvider.calculateSingleShotTimeoutMs(120_000L))
+        assertEquals(10_000L, NativeLocationProvider.calculateSingleShotTimeoutMs(120_000L))
     }
 
     @Test

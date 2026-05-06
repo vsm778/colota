@@ -462,7 +462,7 @@ class LocationForegroundService : Service() {
         }
         val effectiveIntervalMs = getEffectiveIntervalMs()
         val effectiveSyncIntervalSeconds = getEffectiveSyncIntervalSeconds()
-        val useSingleShotMode = isFossProvider() && isScreenOff
+        val useSingleShotMode = isFossProvider()
         
         AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, sync=${effectiveSyncIntervalSeconds}s, screenOff=$isScreenOff, singleShot=$useSingleShotMode")
 
@@ -618,7 +618,7 @@ class LocationForegroundService : Service() {
         if (isWifiPaused || isMotionlessPaused) return
 
         val nextIntervalMs = getEffectiveIntervalMs()
-        val nextSingleShotMode = isScreenOff
+        val nextSingleShotMode = isFossProvider()
         if (nextIntervalMs == lastRequestedIntervalMs && nextSingleShotMode == lastRequestedSingleShotMode) return
 
         AppLogger.i(TAG, "Applying screen-state interval: ${lastRequestedIntervalMs}ms -> ${nextIntervalMs}ms, singleShot=$lastRequestedSingleShotMode -> $nextSingleShotMode")

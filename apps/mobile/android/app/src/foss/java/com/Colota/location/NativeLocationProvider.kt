@@ -23,9 +23,9 @@ class NativeLocationProvider(context: Context) : LocationProvider {
 
     companion object {
         private const val TAG = "NativeLocationProvider"
-        private const val SINGLE_SHOT_MIN_TIMEOUT_MS = 5_000L
-        private const val SINGLE_SHOT_MAX_TIMEOUT_MS = 12_000L
-        private const val SINGLE_SHOT_TIMEOUT_DIVISOR = 6L
+        private const val SINGLE_SHOT_MIN_TIMEOUT_MS = 4_000L
+        private const val SINGLE_SHOT_MAX_TIMEOUT_MS = 10_000L
+        private const val SINGLE_SHOT_TIMEOUT_DIVISOR = 4L
         private const val SINGLE_SHOT_MAX_RETRY_MULTIPLIER = 4L
 
         internal fun calculateSingleShotTimeoutMs(intervalMs: Long): Long =

@@ -2017,14 +2017,14 @@ class LocationForegroundServiceTest {
     }
 
     @Test
-    fun `setupLocationUpdates keeps continuous mode for foss screen-on tracking`() {
+    fun `setupLocationUpdates uses single-shot polling for foss screen-on tracking`() {
         val fossProvider = NativeLocationProvider()
         setField("locationProvider", fossProvider)
         setField("isScreenOff", false)
 
         invokeSetupLocationUpdates()
 
-        assertEquals(false, fossProvider.singleShotMode)
+        assertEquals(true, fossProvider.singleShotMode)
         assertEquals(5000L, fossProvider.lastIntervalMs)
     }
 
