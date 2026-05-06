@@ -67,6 +67,8 @@ class LocationForegroundService : Service() {
 
     /** Debounces the burst of PROVIDERS_CHANGED broadcasts when system Location toggles (one per provider). */
     @Volatile private var lastBroadcastLocationEnabled: Boolean = true
+    @Volatile private var isScreenOff: Boolean = false
+    @Volatile private var lastRequestedIntervalMs: Long = -1L
 
     private val locationProvidersReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -77,6 +79,20 @@ class LocationForegroundService : Service() {
             AppLogger.d(TAG, "Location providers changed: enabled=$current")
             LocationServiceModule.sendLocationStateEvent(current)
             refreshNotificationForCurrentState()
+        }
+    }
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val screenOff = when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> true
+                Intent.ACTION_SCREEN_ON -> false
+                else -> return
+            }
+            if (screenOff == isScreenOff) return
+            isScreenOff = screenOff
+            AppLogger.d(TAG, "Screen state changed: off=$screenOff")
+            applyScreenStateLocationPolicy()
         }
     }
 
@@ -120,6 +136,8 @@ class LocationForegroundService : Service() {
         private const val WIFI_RESUME_DEBOUNCE_MS = 2_000L
         /** Cadence at which the tracking heartbeat logs time-since-last-fix for diagnostics. */
         private const val TRACKING_HEARTBEAT_INTERVAL_MS = 5 * 60_000L
+        /** FOSS-only battery saver when the screen is off. */
+        private const val SCREEN_OFF_INTERVAL_MULTIPLIER = 3L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
         const val ACTION_RECHECK_ZONE = "com.Colota.RECHECK_PAUSE_ZONE"
         const val ACTION_REFRESH_NOTIFICATION = "com.Colota.REFRESH_NOTIFICATION"
@@ -162,8 +180,10 @@ class LocationForegroundService : Service() {
         notificationHelper.createChannel()
 
         motionDetector = MotionDetector(this) { onMotionDetected() }
+        isScreenOff = !(getSystemService(POWER_SERVICE) as PowerManager).isInteractive
 
         registerLocationProvidersReceiver()
+        registerScreenStateReceiver()
 
         AppLogger.d(TAG, "Service created - provider: ${locationProvider.javaClass.simpleName}, motionSensor=${motionDetector?.isAvailable}")
     }
@@ -175,6 +195,20 @@ class LocationForegroundService : Service() {
 
     private fun unregisterLocationProvidersReceiver() {
         unregisterReceiver(locationProvidersReceiver)
+    }
+
+    private fun registerScreenStateReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        ContextCompat.registerReceiver(this, screenStateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    private fun unregisterScreenStateReceiver() {
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -337,6 +371,7 @@ class LocationForegroundService : Service() {
         cancelMotionlessCountdown()
         cancelHeartbeat()
         unregisterLocationProvidersReceiver()
+        unregisterScreenStateReceiver()
         conditionMonitor.stop()
         stopLocationUpdates()
         syncManager.stopPeriodicSync()
@@ -372,17 +407,19 @@ class LocationForegroundService : Service() {
 
         val bypassOsFilter = needsLocationStreamForProfiles()
         val osMinDistance = if (bypassOsFilter) 0f else config.minUpdateDistance
+        val effectiveIntervalMs = getEffectiveIntervalMs()
         
-        AppLogger.d(TAG, "Requesting location updates: interval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m")
+        AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, screenOff=$isScreenOff")
 
         try {
             locationProvider.requestLocationUpdates(
-                intervalMs = config.interval,
+                intervalMs = effectiveIntervalMs,
                 minDistanceMeters = osMinDistance,
                 looper = Looper.getMainLooper(),
                 callback = callback
             )
             lastRequestedBypassOsFilter = bypassOsFilter
+            lastRequestedIntervalMs = effectiveIntervalMs
 
             locationProvider.getLastLocation(
                 onSuccess = { location ->
@@ -412,6 +449,7 @@ class LocationForegroundService : Service() {
         cancelTrackingHeartbeatLogger()
         locationUpdateCallback?.let { locationProvider.removeLocationUpdates(it) }
         locationUpdateCallback = null
+        lastRequestedIntervalMs = -1L
     }
 
     /**
@@ -424,6 +462,30 @@ class LocationForegroundService : Service() {
         profileManager.getNeededConditionTypes().any { it in ProfileConstants.LOCATION_DEPENDENT_CONDITIONS }
 
     private fun isLocationUpdatesRegistered(): Boolean = locationUpdateCallback != null
+
+    private fun isFossProvider(): Boolean = locationProvider.javaClass.simpleName == "NativeLocationProvider"
+
+    private fun getEffectiveIntervalMs(): Long {
+        if (!::config.isInitialized) return 0L
+        return if (isFossProvider() && isScreenOff) {
+            config.interval * SCREEN_OFF_INTERVAL_MULTIPLIER
+        } else {
+            config.interval
+        }
+    }
+
+    private fun applyScreenStateLocationPolicy() {
+        if (!::config.isInitialized || !isFossProvider()) return
+        if (!isLocationUpdatesRegistered()) return
+        if (isWifiPaused || isMotionlessPaused) return
+
+        val nextIntervalMs = getEffectiveIntervalMs()
+        if (nextIntervalMs == lastRequestedIntervalMs) return
+
+        AppLogger.i(TAG, "Applying screen-state interval: ${lastRequestedIntervalMs}ms -> ${nextIntervalMs}ms")
+        stopLocationUpdates()
+        setupLocationUpdates()
+    }
 
     /**
      * Diagnostic-only periodic logger. Records "time since last GPS fix" every 5 minutes
