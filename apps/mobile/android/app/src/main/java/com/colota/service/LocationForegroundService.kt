@@ -66,6 +66,7 @@ class LocationForegroundService : Service() {
     @Volatile private var motionDetector: MotionDetector? = null
     @Volatile private var lastKnownLocation: Location? = null
     @Volatile private var lastRequestedSyncIntervalSeconds: Int = -1
+    @Volatile private var lastTrackingStartAtMs: Long = 0L
 
     /** Debounces the burst of PROVIDERS_CHANGED broadcasts when system Location toggles (one per provider). */
     @Volatile private var lastBroadcastLocationEnabled: Boolean = true
@@ -146,6 +147,8 @@ class LocationForegroundService : Service() {
         private const val SCREEN_OFF_MIN_DISTANCE_METERS = 10f
         /** Background sync cadence for FOSS instant mode while the screen is off. */
         private const val SCREEN_OFF_SYNC_INTERVAL_SECONDS = 600
+        /** Skip the startup instant flush for a short window on FOSS screen-off starts. */
+        private const val SCREEN_OFF_STARTUP_FLUSH_GUARD_MS = 60_000L
         /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
         private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
@@ -350,6 +353,7 @@ class LocationForegroundService : Service() {
 
     private fun handleStart() {
         locationRestartJob?.cancel()
+        lastTrackingStartAtMs = SystemClock.elapsedRealtime()
         locationRestartJob = serviceScope?.launch {
             withContext(Dispatchers.Main) {
                 stopLocationUpdates()
@@ -364,10 +368,15 @@ class LocationForegroundService : Service() {
             }
 
             if (!config.isOfflineMode && getEffectiveSyncIntervalSeconds() == 0 && config.endpoint.isNotBlank() &&
-                syncManager.isSyncAllowed()) {
+                syncManager.isSyncAllowed() && !shouldSkipStartupInstantFlush()) {
                 syncManager.manualFlush()
             }
         }
+    }
+
+    private fun shouldSkipStartupInstantFlush(): Boolean {
+        if (!isFossProvider() || !isScreenOff) return false
+        return (SystemClock.elapsedRealtime() - lastTrackingStartAtMs) < SCREEN_OFF_STARTUP_FLUSH_GUARD_MS
     }
 
     override fun onDestroy() {
