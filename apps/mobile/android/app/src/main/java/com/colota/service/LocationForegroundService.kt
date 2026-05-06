@@ -141,6 +141,8 @@ class LocationForegroundService : Service() {
         private const val SCREEN_OFF_INTERVAL_MULTIPLIER = 3L
         /** Minimum FOSS interval while screen-off throttling is active. */
         private const val SCREEN_OFF_MIN_INTERVAL_MS = 60_000L
+        /** Minimum FOSS distance filter while screen-off profile bypass would otherwise use 0m. */
+        private const val SCREEN_OFF_MIN_DISTANCE_METERS = 10f
         /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
         private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
@@ -413,7 +415,11 @@ class LocationForegroundService : Service() {
         }
 
         val bypassOsFilter = needsLocationStreamForProfiles()
-        val osMinDistance = if (bypassOsFilter) 0f else config.minUpdateDistance
+        val osMinDistance = when {
+            bypassOsFilter && isFossProvider() && isScreenOff -> SCREEN_OFF_MIN_DISTANCE_METERS
+            bypassOsFilter -> 0f
+            else -> config.minUpdateDistance
+        }
         val effectiveIntervalMs = getEffectiveIntervalMs()
         
         AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, screenOff=$isScreenOff")
