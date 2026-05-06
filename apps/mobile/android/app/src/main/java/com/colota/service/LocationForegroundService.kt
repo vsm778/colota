@@ -139,6 +139,8 @@ class LocationForegroundService : Service() {
         private const val TRACKING_HEARTBEAT_INTERVAL_MS = 5 * 60_000L
         /** FOSS-only battery saver when the screen is off. */
         private const val SCREEN_OFF_INTERVAL_MULTIPLIER = 3L
+        /** Minimum FOSS interval while screen-off throttling is active. */
+        private const val SCREEN_OFF_MIN_INTERVAL_MS = 60_000L
         /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
         private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
@@ -473,7 +475,7 @@ class LocationForegroundService : Service() {
     private fun getEffectiveIntervalMs(): Long {
         if (!::config.isInitialized) return 0L
         return if (isFossProvider() && isScreenOff) {
-            config.interval * SCREEN_OFF_INTERVAL_MULTIPLIER
+            maxOf(config.interval * SCREEN_OFF_INTERVAL_MULTIPLIER, SCREEN_OFF_MIN_INTERVAL_MS)
         } else {
             config.interval
         }
