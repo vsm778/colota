@@ -65,6 +65,7 @@ class LocationForegroundService : Service() {
     @Volatile private var lastFixAtMs: Long = 0L
     @Volatile private var motionDetector: MotionDetector? = null
     @Volatile private var lastKnownLocation: Location? = null
+    @Volatile private var lastRequestedSyncIntervalSeconds: Int = -1
 
     /** Debounces the burst of PROVIDERS_CHANGED broadcasts when system Location toggles (one per provider). */
     @Volatile private var lastBroadcastLocationEnabled: Boolean = true
@@ -143,6 +144,8 @@ class LocationForegroundService : Service() {
         private const val SCREEN_OFF_MIN_INTERVAL_MS = 60_000L
         /** Minimum FOSS distance filter while screen-off profile bypass would otherwise use 0m. */
         private const val SCREEN_OFF_MIN_DISTANCE_METERS = 10f
+        /** Background sync cadence for FOSS instant mode while the screen is off. */
+        private const val SCREEN_OFF_SYNC_INTERVAL_SECONDS = 600
         /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
         private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
@@ -360,7 +363,7 @@ class LocationForegroundService : Service() {
                 conditionMonitor.start()
             }
 
-            if (!config.isOfflineMode && config.syncIntervalSeconds == 0 && config.endpoint.isNotBlank() &&
+            if (!config.isOfflineMode && getEffectiveSyncIntervalSeconds() == 0 && config.endpoint.isNotBlank() &&
                 syncManager.isSyncAllowed()) {
                 syncManager.manualFlush()
             }
@@ -421,8 +424,9 @@ class LocationForegroundService : Service() {
             else -> config.minUpdateDistance
         }
         val effectiveIntervalMs = getEffectiveIntervalMs()
+        val effectiveSyncIntervalSeconds = getEffectiveSyncIntervalSeconds()
         
-        AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, screenOff=$isScreenOff")
+        AppLogger.d(TAG, "Requesting location updates: interval=${effectiveIntervalMs}ms, baseInterval=${config.interval}ms, distance=${config.minUpdateDistance}m, osFilter=${osMinDistance}m, sync=${effectiveSyncIntervalSeconds}s, screenOff=$isScreenOff")
 
         try {
             locationProvider.requestLocationUpdates(
@@ -433,6 +437,7 @@ class LocationForegroundService : Service() {
             )
             lastRequestedBypassOsFilter = bypassOsFilter
             lastRequestedIntervalMs = effectiveIntervalMs
+            lastRequestedSyncIntervalSeconds = effectiveSyncIntervalSeconds
 
             locationProvider.getLastLocation(
                 onSuccess = { location ->
@@ -487,6 +492,15 @@ class LocationForegroundService : Service() {
         }
     }
 
+    private fun getEffectiveSyncIntervalSeconds(): Int {
+        if (!::config.isInitialized) return 0
+        return if (isFossProvider() && isScreenOff && config.syncIntervalSeconds == 0) {
+            SCREEN_OFF_SYNC_INTERVAL_SECONDS
+        } else {
+            config.syncIntervalSeconds
+        }
+    }
+
     private fun applyScreenStateLocationPolicy() {
         if (!::config.isInitialized || !isFossProvider()) return
         if (!isLocationUpdatesRegistered()) return
@@ -500,6 +514,23 @@ class LocationForegroundService : Service() {
         setupLocationUpdates()
     }
 
+    private fun applyScreenStateSyncPolicy() {
+        if (!::config.isInitialized || !isFossProvider()) return
+
+        val nextSyncIntervalSeconds = getEffectiveSyncIntervalSeconds()
+        if (nextSyncIntervalSeconds == lastRequestedSyncIntervalSeconds) return
+
+        AppLogger.i(TAG, "Applying screen-state sync interval: ${lastRequestedSyncIntervalSeconds}s -> ${nextSyncIntervalSeconds}s")
+        pushConfigToSyncManager()
+        syncManager.stopPeriodicSync()
+        syncManager.startPeriodicSync()
+        lastRequestedSyncIntervalSeconds = nextSyncIntervalSeconds
+
+        if (!isScreenOff && nextSyncIntervalSeconds == 0 && syncManager.isSyncAllowed()) {
+            serviceScope?.launch { syncManager.manualFlush() }
+        }
+    }
+
     private fun handleScreenStateChange(screenOff: Boolean) {
         if (!isFossProvider()) return
 
@@ -511,6 +542,7 @@ class LocationForegroundService : Service() {
         screenOffDelayJob?.cancel()
         screenOffDelayJob = null
         applyScreenStateLocationPolicy()
+        applyScreenStateSyncPolicy()
     }
 
     private fun scheduleScreenOffPolicy() {
@@ -522,6 +554,7 @@ class LocationForegroundService : Service() {
             if (!isScreenOff) return@launch
             withContext(Dispatchers.Main) {
                 applyScreenStateLocationPolicy()
+                applyScreenStateSyncPolicy()
             }
         }
     }
@@ -1252,7 +1285,7 @@ class LocationForegroundService : Service() {
     private fun pushConfigToSyncManager() {
         syncManager.updateConfig(
             endpoint = config.endpoint,
-            syncIntervalSeconds = config.syncIntervalSeconds,
+            syncIntervalSeconds = getEffectiveSyncIntervalSeconds(),
             retryIntervalSeconds = config.retryIntervalSeconds,
             isOfflineMode = config.isOfflineMode,
             syncCondition = config.syncCondition,
