@@ -23,8 +23,21 @@ class NativeLocationProvider(context: Context) : LocationProvider {
 
     companion object {
         private const val TAG = "NativeLocationProvider"
-        private const val SINGLE_SHOT_MIN_TIMEOUT_MS = 15_000L
-        private const val SINGLE_SHOT_MAX_TIMEOUT_MS = 30_000L
+        private const val SINGLE_SHOT_MIN_TIMEOUT_MS = 5_000L
+        private const val SINGLE_SHOT_MAX_TIMEOUT_MS = 12_000L
+        private const val SINGLE_SHOT_TIMEOUT_DIVISOR = 6L
+        private const val SINGLE_SHOT_MAX_RETRY_MULTIPLIER = 4L
+
+        internal fun calculateSingleShotTimeoutMs(intervalMs: Long): Long =
+            (intervalMs / SINGLE_SHOT_TIMEOUT_DIVISOR).coerceIn(
+                SINGLE_SHOT_MIN_TIMEOUT_MS,
+                SINGLE_SHOT_MAX_TIMEOUT_MS
+            )
+
+        internal fun calculateSingleShotRetryDelayMs(intervalMs: Long, consecutiveTimeouts: Int): Long {
+            val multiplier = consecutiveTimeouts.coerceIn(1, SINGLE_SHOT_MAX_RETRY_MULTIPLIER.toInt()).toLong()
+            return intervalMs * multiplier
+        }
     }
 
     private val locationManager: LocationManager =
@@ -119,6 +132,7 @@ class NativeLocationProvider(context: Context) : LocationProvider {
         @Volatile private var cancelled = false
         @Volatile private var activeListener: LocationListener? = null
         @Volatile private var timeoutRunnable: Runnable? = null
+        @Volatile private var consecutiveTimeouts = 0
         private val restartRunnable = Runnable {
             if (!cancelled) requestNextFix()
         }
@@ -136,6 +150,7 @@ class NativeLocationProvider(context: Context) : LocationProvider {
                     if (cancelled) return
                     timeoutRunnable?.let(handler::removeCallbacks)
                     timeoutRunnable = null
+                    consecutiveTimeouts = 0
                     clearActiveListener(this)
                     callback.onLocationUpdate(location)
                     handler.postDelayed(restartRunnable, intervalMs)
@@ -148,14 +163,16 @@ class NativeLocationProvider(context: Context) : LocationProvider {
             }
 
             activeListener = listener
-            val timeoutMs = (intervalMs / 2).coerceIn(SINGLE_SHOT_MIN_TIMEOUT_MS, SINGLE_SHOT_MAX_TIMEOUT_MS)
+            val timeoutMs = calculateSingleShotTimeoutMs(intervalMs)
             val timeoutRunnable = Runnable {
                 if (cancelled) return@Runnable
                 if (activeListener === listener) {
-                    AppLogger.d(TAG, "GPS single-shot timed out after ${timeoutMs}ms, retrying in ${intervalMs}ms")
+                    consecutiveTimeouts++
+                    val retryDelayMs = calculateSingleShotRetryDelayMs(intervalMs, consecutiveTimeouts)
+                    AppLogger.d(TAG, "GPS single-shot timed out after ${timeoutMs}ms, retrying in ${retryDelayMs}ms (timeouts=$consecutiveTimeouts)")
                     this.timeoutRunnable = null
                     clearActiveListener(listener)
-                    handler.postDelayed(restartRunnable, intervalMs)
+                    handler.postDelayed(restartRunnable, retryDelayMs)
                 }
             }
             this.timeoutRunnable = timeoutRunnable
