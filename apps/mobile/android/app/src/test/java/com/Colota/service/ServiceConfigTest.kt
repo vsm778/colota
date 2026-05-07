@@ -36,7 +36,7 @@ class ServiceConfigTest {
         SettingsKeys.SCREEN_ON_SYNC_INTERVAL to "300",
         SettingsKeys.SCREEN_OFF_CHECK_INTERVAL to "60",
         SettingsKeys.SCREEN_OFF_MAX_INTERVAL to "900",
-        SettingsKeys.SCREEN_OFF_LONG_THRESHOLD to "1800",
+        SettingsKeys.SCREEN_OFF_LONG_THRESHOLD to "900",
         SettingsKeys.SCREEN_OFF_BACKOFF_MULTIPLIER to "1.5",
         "isOfflineMode" to "false",
         "syncCondition" to "any",
@@ -82,7 +82,7 @@ class ServiceConfigTest {
         assertEquals(300, config.screenOnSyncIntervalSeconds)
         assertEquals(60, config.screenOffCheckIntervalSeconds)
         assertEquals(900, config.screenOffMaxIntervalSeconds)
-        assertEquals(1800, config.screenOffLongThresholdSeconds)
+        assertEquals(900, config.screenOffLongThresholdSeconds)
         assertEquals(1.5, config.screenOffBackoffMultiplier, 0.0001)
         assertFalse(config.isOfflineMode)
         assertEquals("POST", config.httpMethod)

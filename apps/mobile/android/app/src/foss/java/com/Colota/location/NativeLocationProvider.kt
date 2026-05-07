@@ -45,9 +45,14 @@ class NativeLocationProvider(context: Context) : LocationProvider {
 
     private val sessionMap = java.util.concurrent.ConcurrentHashMap<LocationUpdateCallback, LocationSession>()
     @Volatile private var singleShotMode = false
+    @Volatile private var singleShotStartImmediately = true
 
     override fun setSingleShotMode(enabled: Boolean) {
         singleShotMode = enabled
+    }
+
+    override fun setSingleShotStartImmediately(enabled: Boolean) {
+        singleShotStartImmediately = enabled
     }
 
     override fun requestLocationUpdates(
@@ -59,7 +64,7 @@ class NativeLocationProvider(context: Context) : LocationProvider {
         removeLocationUpdates(callback)
 
         if (singleShotMode) {
-            val session = SingleShotSession(intervalMs, looper, callback)
+            val session = SingleShotSession(intervalMs, looper, callback, singleShotStartImmediately)
             sessionMap[callback] = session
             session.start()
             AppLogger.d(TAG, "Started GPS single-shot polling: interval=${intervalMs}ms")
@@ -126,7 +131,8 @@ class NativeLocationProvider(context: Context) : LocationProvider {
     private inner class SingleShotSession(
         private val intervalMs: Long,
         private val looper: Looper,
-        private val callback: LocationUpdateCallback
+        private val callback: LocationUpdateCallback,
+        private val startImmediately: Boolean
     ) : LocationSession {
         private val handler = Handler(looper)
         @Volatile private var cancelled = false
@@ -138,7 +144,11 @@ class NativeLocationProvider(context: Context) : LocationProvider {
         }
 
         fun start() {
-            handler.post(restartRunnable)
+            if (startImmediately) {
+                handler.post(restartRunnable)
+            } else {
+                handler.postDelayed(restartRunnable, intervalMs)
+            }
         }
 
         @Suppress("DEPRECATION", "MissingPermission")

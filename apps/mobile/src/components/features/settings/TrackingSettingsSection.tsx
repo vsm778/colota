@@ -167,6 +167,7 @@ export function TrackingSettingsSection({
       let nextCheck = Number.isFinite(currentCheck) && currentCheck >= 1 ? currentCheck : 1
       let nextMax = Number(screenOffMaxIntervalInput)
       nextMax = Number.isFinite(nextMax) && nextMax >= nextCheck ? nextMax : nextCheck
+      nextMax = Math.min(nextMax, 900)
       let nextLong = Number(screenOffLongThresholdInput)
       nextLong = Number.isFinite(nextLong) && nextLong >= 0 ? nextLong : 0
       let nextMultiplier = Number(screenOffBackoffMultiplierInput)
@@ -328,7 +329,7 @@ export function TrackingSettingsSection({
             <Divider />
 
             <View style={styles.paramGroup}>
-              <Text style={[styles.paramGroupTitle, { color: colors.text }]}>Screen-Off Sleep Mode</Text>
+              <Text style={[styles.paramGroupTitle, { color: colors.text }]}>Sleep & Stationary Backoff</Text>
 
               <NumericInput
                 label="Sleep Check Interval"
@@ -337,7 +338,7 @@ export function TrackingSettingsSection({
                 onBlur={() => handleScreenOffSettingBlur("screenOffCheckInterval")}
                 unit="seconds"
                 placeholder={DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS.toString()}
-                hint="After the screen turns off, start polling at this interval and grow it after each successful fix."
+                hint="Base polling interval while the screen is off. Exponential backoff starts only after 3 consecutive fixes stay within Movement Threshold, regardless of screen state."
                 colors={colors}
               />
 
@@ -348,7 +349,7 @@ export function TrackingSettingsSection({
                 onBlur={() => handleScreenOffSettingBlur("screenOffMaxInterval")}
                 unit="seconds"
                 placeholder={DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS.toString()}
-                hint="Upper cap for screen-off polling. The service will not wait longer than this between wake-up checks."
+                hint="Upper cap for stationary polling and sync backoff. Hard-limited to 900 seconds."
                 colors={colors}
               />
 
@@ -359,7 +360,7 @@ export function TrackingSettingsSection({
                 onBlur={() => handleScreenOffSettingBlur("screenOffBackoffMultiplier")}
                 unit="x"
                 placeholder={DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER.toString()}
-                hint="How aggressively to grow the next screen-off interval after each successful fix. Allowed range: 1.5 to 3.0."
+                hint="How aggressively to grow the next stationary interval after each successful fix. Allowed range: 1.5 to 3.0."
                 colors={colors}
               />
 
@@ -370,7 +371,7 @@ export function TrackingSettingsSection({
                 onBlur={() => handleScreenOffSettingBlur("screenOffLongThreshold")}
                 unit="seconds"
                 placeholder={DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS.toString()}
-                hint="If the screen stays off this long, tracking sleeps until wake, then requests a fresh location immediately."
+                hint="If the screen stays off this long, waking the phone resets stationary backoff and starts again from the normal screen-on interval."
                 colors={colors}
               />
             </View>

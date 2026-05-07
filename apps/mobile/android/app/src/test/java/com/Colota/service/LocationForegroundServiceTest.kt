@@ -2,6 +2,7 @@ package com.Colota.service
 
 import android.app.NotificationManager
 import android.location.Location
+import android.os.SystemClock
 import com.Colota.bridge.LocationServiceModule
 import com.Colota.data.DatabaseHelper
 import com.Colota.data.GeofenceHelper
@@ -1380,12 +1381,14 @@ class LocationForegroundServiceTest {
         val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
         setField("locationUpdateCallback", existingCallback)
         setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
         setField("screenOffPollingIntervalMs", 60_000L)
 
         invokeMaybeAdvanceScreenOffPollingInterval()
 
         assertEquals(120_000L, getField("screenOffPollingIntervalMs"))
         verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
         verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
 
         clearMocks(locationProvider)
@@ -1412,12 +1415,14 @@ class LocationForegroundServiceTest {
         val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
         setField("locationUpdateCallback", existingCallback)
         setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
         setField("screenOffPollingIntervalMs", 60_000L)
 
         invokeMaybeAdvanceScreenOffPollingInterval()
 
         assertEquals(90_000L, getField("screenOffPollingIntervalMs"))
         verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
         verify { locationProvider.requestLocationUpdates(90_000L, 0f, any(), any()) }
     }
 
@@ -2002,9 +2007,9 @@ class LocationForegroundServiceTest {
 
     private fun invokeSetupLocationUpdates() {
         val method = LocationForegroundService::class.java
-            .getDeclaredMethod("setupLocationUpdates")
+            .getDeclaredMethod("setupLocationUpdates", Boolean::class.javaPrimitiveType)
         method.isAccessible = true
-        method.invoke(service)
+        method.invoke(service, true)
     }
 
     private fun invokeHandleRecheckProfiles() {
@@ -2074,6 +2079,7 @@ class LocationForegroundServiceTest {
         val fossProvider = NativeLocationProvider()
         setField("locationProvider", fossProvider)
         setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
             interval = 5000L,
@@ -2196,19 +2202,350 @@ class LocationForegroundServiceTest {
     }
 
     @Test
-    fun `screen on after long sleep requests location immediately`() {
+    fun `screen on after max stationary backoff requests location immediately`() {
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
             interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
             screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
-        setField("isScreenOffLongSleepActive", true)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 300_000L)
+        setField("lastScreenOffAtMs", 100_000L)
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 100_000L + 600_000L
+
+        try {
+            invokeHandleScreenStateChange(false)
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        verify { locationProvider.setSingleShotStartImmediately(true) }
+        verify { locationProvider.requestLocationUpdates(300_000L, 0f, any(), any()) }
+    }
+
+    @Test
+    fun `screen-off stationary fixes enable exponential backoff`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52000, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52003, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52005, 13.40500))
+
+        assertTrue(getField("isScreenOffMediumModeActive"))
+        assertEquals(120_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 20f, any(), any()) }
+    }
+
+    @Test
+    fun `stationary backoff does not start before third fix`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52000, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52003, 13.40500))
+
+        assertFalse(getField("isScreenOffMediumModeActive"))
+        assertEquals(60_000L, getField("screenOffPollingIntervalMs"))
+        verify(exactly = 0) { locationProvider.requestLocationUpdates(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `screen-on stationary fixes enable exponential backoff`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", false)
+        setField("screenOffPollingIntervalMs", 5_000L)
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52000, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52003, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52005, 13.40500))
+
+        assertTrue(getField("isScreenOffMediumModeActive"))
+        assertEquals(10_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(10_000L, 20f, any(), any()) }
+    }
+
+    @Test
+    fun `handleLocationUpdate does not advance screen-off backoff after queueing a fix`() = runServiceTest {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 120_000L)
+        setField("pendingPauseZone", homeGeofence)
+
+        invokeHandleLocationUpdate(realLocation(52.52000, 13.40500))
+        advanceUntilIdle()
+
+        assertTrue(getField("isScreenOffMediumModeActive"))
+        assertEquals(120_000L, getField("screenOffPollingIntervalMs"))
+        verify(exactly = 0) { locationProvider.requestLocationUpdates(240_000L, any(), any(), any()) }
+    }
+
+    @Test
+    fun `movement resets stationary backoff to screen-off base interval`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", existingCallback)
+        setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 120_000L)
+        getField<ArrayDeque<Location>>("screenOffRecentLocations").apply {
+            clear()
+            repeat(3) {
+                addLast(mockk(relaxed = true) {
+                    every { distanceTo(any()) } returns 100f
+                })
+            }
+        }
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52100, 13.40500))
+
+        assertFalse(getField("isScreenOffMediumModeActive"))
+        assertEquals(60_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(60_000L, 20f, any(), any()) }
+    }
+
+    @Test
+    fun `movement resets stationary backoff to screen-on base interval`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", existingCallback)
+        setField("isScreenOff", false)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 30_000L)
+        getField<ArrayDeque<Location>>("screenOffRecentLocations").apply {
+            clear()
+            repeat(3) {
+                addLast(mockk(relaxed = true) {
+                    every { distanceTo(any()) } returns 100f
+                })
+            }
+        }
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52100, 13.40500))
+
+        assertFalse(getField("isScreenOffMediumModeActive"))
+        assertEquals(5_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(5_000L, 20f, any(), any()) }
+    }
+
+    @Test
+    fun `movement threshold zero disables stationary backoff`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 0f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52000, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52003, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52005, 13.40500))
+
+        assertFalse(getField("isScreenOffMediumModeActive"))
+        assertEquals(60_000L, getField("screenOffPollingIntervalMs"))
+        verify(exactly = 0) { locationProvider.requestLocationUpdates(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `screen on below max stationary backoff does not request immediate location`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffLongThresholdSeconds = 900,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 120_000L)
+        setField("lastRequestedIntervalMs", 120_000L)
+        setField("lastRequestedSingleShotMode", true)
+        setField("lastScreenOffAtMs", 100_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 100_000L + 600_000L
+
+        try {
+            invokeHandleScreenStateChange(false)
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
+    }
+
+    @Test
+    fun `long sleep threshold wins over max stationary backoff immediate wake poll`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffLongThresholdSeconds = 900,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 300_000L)
+        setField("lastRequestedIntervalMs", 300_000L)
+        setField("lastScreenOffAtMs", 100_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 100_000L + 901_000L
+
+        try {
+            invokeHandleScreenStateChange(false)
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
+    }
+
+    @Test
+    fun `screen on after long sleep resets to normal interval`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffLongThresholdSeconds = 900,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 300_000L)
+        setField("lastRequestedIntervalMs", 300_000L)
+        setField("lastScreenOffAtMs", 100_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 100_000L + 901_000L
+
+        try {
+            invokeHandleScreenStateChange(false)
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        assertFalse(getField("isScreenOffMediumModeActive"))
+        assertEquals(5_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
+        verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
+    }
+
+    @Test
+    fun `screen off raises active stationary interval to configured sleep base when needed`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5_000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 10_000L)
+        setField("lastRequestedIntervalMs", 10_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+
+        invokeHandleScreenStateChange(true)
+
+        assertEquals(60_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(60_000L, 0f, any(), any()) }
+    }
+
+    @Test
+    fun `screen on without stationary backoff restores normal interval without immediate request`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            filterInaccurateLocations = false
+        ))
+        setField("screenOffPollingIntervalMs", 60_000L)
+        setField("lastRequestedIntervalMs", 60_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
 
         invokeHandleScreenStateChange(false)
 
+        verify { locationProvider.setSingleShotStartImmediately(false) }
         verify { locationProvider.requestLocationUpdates(5000L, 0f, any(), any()) }
-        assertFalse(getField("isScreenOffLongSleepActive"))
     }
 
     @Test
@@ -2360,6 +2697,14 @@ class LocationForegroundServiceTest {
         method.invoke(service, screenOff)
     }
 
+    private fun invokeUpdateScreenOffBackoffPolicy(location: Location) {
+        val method = LocationForegroundService::class.java.getDeclaredMethod(
+            "updateScreenOffBackoffPolicy", Location::class.java
+        )
+        method.isAccessible = true
+        method.invoke(service, location)
+    }
+
     private fun geofence(
         name: String,
         lat: Double = 52.52,
@@ -2382,6 +2727,14 @@ class LocationForegroundServiceTest {
             }
         }
     }
+
+    private fun realLocation(lat: Double, lon: Double): Location =
+        Location("gps").apply {
+            latitude = lat
+            longitude = lon
+            accuracy = 10f
+            time = System.currentTimeMillis()
+        }
 
     private val homeGeofence = geofence("Home", 52.50, 13.40, 150.0)
     private val officeGeofence = geofence("Office", 48.14, 11.58, 200.0)

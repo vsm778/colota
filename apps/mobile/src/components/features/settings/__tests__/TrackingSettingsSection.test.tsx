@@ -126,7 +126,7 @@ describe("TrackingSettingsSection", () => {
 
     expect(getByText("Tracking Parameters")).toBeTruthy()
     expect(getByText("Quality Filters")).toBeTruthy()
-    expect(getByText("Screen-Off Sleep Mode")).toBeTruthy()
+    expect(getByText("Sleep & Stationary Backoff")).toBeTruthy()
   })
 
   it("clamps interval to min 1 on blur", () => {

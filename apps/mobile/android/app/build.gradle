@@ -63,6 +63,7 @@ def enableProguardInReleaseBuilds = true
 
 // Use project.findProperty to safely check for the variable
 def isHermesEnabled = project.findProperty('hermesEnabled') == 'true'
+def releaseBuildTimestamp = new Date().format("yyyyMMdd-HHmmss")
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -190,6 +191,17 @@ android {
         unitTests.all {
             // Bump heap to avoid OOM when running the full test suite.
             maxHeapSize = "4g"
+        }
+    }
+}
+
+android.applicationVariants.all { variant ->
+    if (variant.buildType.name != "release") return
+
+    variant.outputs.all { output ->
+        def currentName = output.outputFileName
+        if (currentName?.endsWith(".apk")) {
+            output.outputFileName = currentName.replace(".apk", "-${releaseBuildTimestamp}.apk")
         }
     }
 }

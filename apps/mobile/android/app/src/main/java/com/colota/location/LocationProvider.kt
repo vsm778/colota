@@ -21,6 +21,12 @@ interface LocationProvider {
     fun setSingleShotMode(enabled: Boolean) {}
 
     /**
+     * Controls whether a single-shot provider should request the first fix immediately
+     * after registration, or wait until the configured interval elapses.
+     */
+    fun setSingleShotStartImmediately(enabled: Boolean) {}
+
+    /**
      * Request continuous location updates.
      *
      * @param intervalMs        Desired update interval in milliseconds.
