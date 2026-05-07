@@ -68,10 +68,6 @@ function parseRawSettings(allRaw: Record<string, string>): Settings {
       ? parseInt(allRaw.screenOffMaxInterval, 10)
       : DEFAULT_SETTINGS.screenOffMaxInterval,
 
-    screenOffLongThreshold: allRaw.screenOffLongThreshold
-      ? parseInt(allRaw.screenOffLongThreshold, 10)
-      : DEFAULT_SETTINGS.screenOffLongThreshold,
-
     screenOffBackoffMultiplier: allRaw.screenOffBackoffMultiplier
       ? parseFloat(allRaw.screenOffBackoffMultiplier)
       : DEFAULT_SETTINGS.screenOffBackoffMultiplier,

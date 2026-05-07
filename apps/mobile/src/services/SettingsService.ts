@@ -44,7 +44,6 @@ export const SettingsService = {
       case "screenOnSyncInterval":
       case "screenOffCheckInterval":
       case "screenOffMaxInterval":
-      case "screenOffLongThreshold":
       case "screenOffBackoffMultiplier":
       case "accuracyThreshold":
         // Already in correct format (numbers)

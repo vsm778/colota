@@ -168,7 +168,6 @@ class DatabaseHelper private constructor(context: Context) :
             SettingsKeys.SCREEN_ON_SYNC_INTERVAL to SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS.toString(),
             SettingsKeys.SCREEN_OFF_CHECK_INTERVAL to SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS.toString(),
             SettingsKeys.SCREEN_OFF_MAX_INTERVAL to SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS.toString(),
-            SettingsKeys.SCREEN_OFF_LONG_THRESHOLD to SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS.toString(),
             SettingsKeys.SCREEN_OFF_BACKOFF_MULTIPLIER to SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER.toString(),
             "isOfflineMode" to "false",
             "syncCondition" to "any",

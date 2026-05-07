@@ -8,6 +8,7 @@ package com.Colota.sync
 import com.Colota.util.AppLogger
 import com.Colota.bridge.LocationServiceModule
 import com.Colota.data.DatabaseHelper
+import com.Colota.data.QueuedLocation
 import com.Colota.util.TimedCache
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -138,8 +139,7 @@ class SyncManager(
             return
         }
 
-        val queueId = dbHelper.addToQueue(locationId, payload.toString())
-
+        dbHelper.addToQueue(locationId, payload.toString())
         invalidateQueueCache()
         notifyQueueStateChanged()
 
@@ -148,12 +148,11 @@ class SyncManager(
             return
         }
 
-        // Immediate mode still goes through the queue consumer path so capture and send stay decoupled.
-        if (syncIntervalSeconds == 0 && isSyncAllowed()) {
+        if (shouldTriggerInstantFlush()) {
             AppLogger.d(TAG, "Instant flush requested through queue consumer")
             manualFlush()
         }
-        // If syncInterval > 0, the periodic sync job will handle it.
+        // Periodic mode leaves the item in queue for the background sync job.
     }
 
     fun isSyncAllowed(): Boolean {
@@ -192,6 +191,9 @@ class SyncManager(
     }
 
     private suspend fun <T> runSyncPass(block: suspend () -> T): T = syncMutex.withLock { block() }
+
+    private fun shouldTriggerInstantFlush(): Boolean =
+        syncIntervalSeconds == 0 && isSyncAllowed()
 
     // Exponential backoff: 30s → 60s → 5min → 15min
     private suspend fun applyBackoffDelay() {
@@ -234,7 +236,6 @@ class SyncManager(
 
             for (chunk in queued.chunked(10)) {
                 val successfulIds = mutableListOf<Long>()
-
                 val results = chunk.map { item ->
                     async {
                         try {
@@ -254,22 +255,13 @@ class SyncManager(
                     }
                 }.awaitAll()
 
-                results.forEach { (queueId, success) ->
-                    if (success) {
-                        successfulIds.add(queueId)
-                    } else {
-                        dbHelper.incrementRetryCount(queueId, "Send failed")
-                        totalFailed++
-                    }
-                }
+                val failedInChunk = recordChunkResults(results, successfulIds)
+                totalFailed += failedInChunk
 
-                if (successfulIds.isNotEmpty()) {
-                    val sentLocationIds = chunk.filter { it.queueId in successfulIds }.map { it.locationId }
-                    dbHelper.markLocationsSent(sentLocationIds)
-                    dbHelper.removeBatchFromQueue(successfulIds)
-
-                    totalProcessed += successfulIds.size
-                    totalSucceeded += successfulIds.size
+                val succeededInChunk = finalizeSuccessfulChunkItems(chunk, successfulIds)
+                totalProcessed += succeededInChunk
+                totalSucceeded += succeededInChunk
+                if (succeededInChunk > 0) {
                     onProgress?.invoke(totalSucceeded, totalFailed)
                 }
 
@@ -299,6 +291,36 @@ class SyncManager(
 
     private fun notifyQueueStateChanged() {
         onQueueStateChanged?.invoke()
+    }
+
+    private fun recordChunkResults(
+        results: List<Pair<Long, Boolean>>,
+        successfulIds: MutableList<Long>
+    ): Int {
+        var failedCount = 0
+        results.forEach { (queueId, success) ->
+            if (success) {
+                successfulIds.add(queueId)
+            } else {
+                dbHelper.incrementRetryCount(queueId, "Send failed")
+                failedCount++
+            }
+        }
+        return failedCount
+    }
+
+    private fun finalizeSuccessfulChunkItems(
+        chunk: List<QueuedLocation>,
+        successfulIds: List<Long>
+    ): Int {
+        if (successfulIds.isEmpty()) return 0
+
+        val sentLocationIds = chunk
+            .filter { it.queueId in successfulIds }
+            .map { it.locationId }
+        dbHelper.markLocationsSent(sentLocationIds)
+        dbHelper.removeBatchFromQueue(successfulIds)
+        return successfulIds.size
     }
 
     private fun calculateNextSyncDelay(): Long {

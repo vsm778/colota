@@ -13,7 +13,6 @@ import {
   ThemeColors,
   DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
   DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
-  DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
   DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER
 } from "../../../types/global"
 import { fonts } from "../../../styles/typography"
@@ -51,9 +50,6 @@ export function TrackingSettingsSection({
     settings.screenOffCheckInterval.toString()
   )
   const [screenOffMaxIntervalInput, setScreenOffMaxIntervalInput] = useState(settings.screenOffMaxInterval.toString())
-  const [screenOffLongThresholdInput, setScreenOffLongThresholdInput] = useState(
-    settings.screenOffLongThreshold.toString()
-  )
   const [screenOffBackoffMultiplierInput, setScreenOffBackoffMultiplierInput] = useState(
     settings.screenOffBackoffMultiplier.toString()
   )
@@ -67,7 +63,6 @@ export function TrackingSettingsSection({
     setAccuracyThresholdInput(metersToInput(settings.accuracyThreshold).toString())
     setScreenOffCheckIntervalInput(settings.screenOffCheckInterval.toString())
     setScreenOffMaxIntervalInput(settings.screenOffMaxInterval.toString())
-    setScreenOffLongThresholdInput(settings.screenOffLongThreshold.toString())
     setScreenOffBackoffMultiplierInput(settings.screenOffBackoffMultiplier.toString())
   }, [
     settings.interval,
@@ -75,7 +70,6 @@ export function TrackingSettingsSection({
     settings.accuracyThreshold,
     settings.screenOffCheckInterval,
     settings.screenOffMaxInterval,
-    settings.screenOffLongThreshold,
     settings.screenOffBackoffMultiplier
   ])
 
@@ -135,12 +129,11 @@ export function TrackingSettingsSection({
 
   const handleScreenOffSettingChange = useCallback(
     (
-      key: "screenOffCheckInterval" | "screenOffMaxInterval" | "screenOffLongThreshold" | "screenOffBackoffMultiplier",
+      key: "screenOffCheckInterval" | "screenOffMaxInterval" | "screenOffBackoffMultiplier",
       value: string
     ) => {
       if (key === "screenOffCheckInterval") setScreenOffCheckIntervalInput(value)
       if (key === "screenOffMaxInterval") setScreenOffMaxIntervalInput(value)
-      if (key === "screenOffLongThreshold") setScreenOffLongThresholdInput(value)
       if (key === "screenOffBackoffMultiplier") setScreenOffBackoffMultiplierInput(value)
 
       const num = Number(value)
@@ -153,23 +146,19 @@ export function TrackingSettingsSection({
   )
 
   const handleScreenOffSettingBlur = useCallback(
-    (key: "screenOffCheckInterval" | "screenOffMaxInterval" | "screenOffLongThreshold" | "screenOffBackoffMultiplier") => {
+    (key: "screenOffCheckInterval" | "screenOffMaxInterval" | "screenOffBackoffMultiplier") => {
       const raw =
         key === "screenOffCheckInterval"
           ? screenOffCheckIntervalInput
           : key === "screenOffMaxInterval"
             ? screenOffMaxIntervalInput
-            : key === "screenOffLongThreshold"
-              ? screenOffLongThresholdInput
-              : screenOffBackoffMultiplierInput
+            : screenOffBackoffMultiplierInput
 
       const currentCheck = Number(screenOffCheckIntervalInput)
       let nextCheck = Number.isFinite(currentCheck) && currentCheck >= 1 ? currentCheck : 1
       let nextMax = Number(screenOffMaxIntervalInput)
       nextMax = Number.isFinite(nextMax) && nextMax >= nextCheck ? nextMax : nextCheck
       nextMax = Math.min(nextMax, 900)
-      let nextLong = Number(screenOffLongThresholdInput)
-      nextLong = Number.isFinite(nextLong) && nextLong >= 0 ? nextLong : 0
       let nextMultiplier = Number(screenOffBackoffMultiplierInput)
       nextMultiplier =
         Number.isFinite(nextMultiplier) && nextMultiplier >= 1.5 && nextMultiplier <= 3
@@ -185,9 +174,6 @@ export function TrackingSettingsSection({
       ) {
         setScreenOffMaxIntervalInput(nextMax.toString())
       }
-      if (key === "screenOffLongThreshold" && raw !== nextLong.toString()) {
-        setScreenOffLongThresholdInput(nextLong.toString())
-      }
       if (key === "screenOffBackoffMultiplier" && raw !== nextMultiplier.toString()) {
         setScreenOffBackoffMultiplierInput(nextMultiplier.toString())
       }
@@ -196,7 +182,6 @@ export function TrackingSettingsSection({
         ...settings,
         screenOffCheckInterval: nextCheck,
         screenOffMaxInterval: nextMax,
-        screenOffLongThreshold: nextLong,
         screenOffBackoffMultiplier: nextMultiplier
       }
       onSettingsChange(next)
@@ -205,7 +190,6 @@ export function TrackingSettingsSection({
     [
       screenOffCheckIntervalInput,
       screenOffMaxIntervalInput,
-      screenOffLongThresholdInput,
       screenOffBackoffMultiplierInput,
       settings,
       onSettingsChange,
@@ -361,17 +345,6 @@ export function TrackingSettingsSection({
                 unit="x"
                 placeholder={DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER.toString()}
                 hint="How aggressively to grow the next stationary interval after each successful fix. Allowed range: 1.5 to 3.0."
-                colors={colors}
-              />
-
-              <NumericInput
-                label="Long Sleep Threshold"
-                value={screenOffLongThresholdInput}
-                onChange={(val) => handleScreenOffSettingChange("screenOffLongThreshold", val)}
-                onBlur={() => handleScreenOffSettingBlur("screenOffLongThreshold")}
-                unit="seconds"
-                placeholder={DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS.toString()}
-                hint="If the screen stays off this long, waking the phone resets stationary backoff and starts again from the normal screen-on interval."
                 colors={colors}
               />
             </View>

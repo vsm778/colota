@@ -67,12 +67,10 @@ describe("SettingsService", () => {
     it("saves screen-off sleep settings as string numbers", async () => {
       await SettingsService.updateSetting("screenOffCheckInterval", 60)
       await SettingsService.updateSetting("screenOffMaxInterval", 900)
-      await SettingsService.updateSetting("screenOffLongThreshold", 1800)
       await SettingsService.updateSetting("screenOffBackoffMultiplier", 1.5)
 
       expect(mockSaveSetting).toHaveBeenCalledWith("screenOffCheckInterval", "60")
       expect(mockSaveSetting).toHaveBeenCalledWith("screenOffMaxInterval", "900")
-      expect(mockSaveSetting).toHaveBeenCalledWith("screenOffLongThreshold", "1800")
       expect(mockSaveSetting).toHaveBeenCalledWith("screenOffBackoffMultiplier", "1.5")
     })
 

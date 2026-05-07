@@ -14,12 +14,10 @@ object SettingsKeys {
     const val SCREEN_ON_SYNC_INTERVAL = "screenOnSyncInterval"
     const val SCREEN_OFF_CHECK_INTERVAL = "screenOffCheckInterval"
     const val SCREEN_OFF_MAX_INTERVAL = "screenOffMaxInterval"
-    const val SCREEN_OFF_LONG_THRESHOLD = "screenOffLongThreshold"
     const val SCREEN_OFF_BACKOFF_MULTIPLIER = "screenOffBackoffMultiplier"
 
     const val DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS = 300
     const val DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS = 60
     const val DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS = 900
-    const val DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS = 900
     const val DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER = 2.0
 }

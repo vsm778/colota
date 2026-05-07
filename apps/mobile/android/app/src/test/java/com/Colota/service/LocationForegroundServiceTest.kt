@@ -2202,18 +2202,18 @@ class LocationForegroundServiceTest {
     }
 
     @Test
-    fun `screen on after max stationary backoff requests location immediately`() {
+    fun `screen on after sleep starts wake polling at two minutes without immediate request`() {
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
             interval = 5000L,
             screenOffCheckIntervalSeconds = 60,
             screenOffMaxIntervalSeconds = 300,
-            screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
         setField("isScreenOffMediumModeActive", true)
         setField("screenOffPollingIntervalMs", 300_000L)
         setField("lastScreenOffAtMs", 100_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
 
         mockkStatic(SystemClock::class)
         every { SystemClock.elapsedRealtime() } returns 100_000L + 600_000L
@@ -2224,8 +2224,9 @@ class LocationForegroundServiceTest {
             unmockkStatic(SystemClock::class)
         }
 
-        verify { locationProvider.setSingleShotStartImmediately(true) }
-        verify { locationProvider.requestLocationUpdates(300_000L, 0f, any(), any()) }
+        assertEquals(120_000L, getField("wakeScreenOnIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
     }
 
     @Test
@@ -2423,7 +2424,6 @@ class LocationForegroundServiceTest {
             interval = 5000L,
             screenOffCheckIntervalSeconds = 60,
             screenOffMaxIntervalSeconds = 300,
-            screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
         setField("isScreenOffMediumModeActive", true)
@@ -2443,16 +2443,17 @@ class LocationForegroundServiceTest {
         }
 
         verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
     }
 
     @Test
-    fun `long sleep threshold wins over max stationary backoff immediate wake poll`() {
+    fun `long sleep threshold still starts wake polling at two minutes`() {
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
             interval = 5000L,
             screenOffCheckIntervalSeconds = 60,
             screenOffMaxIntervalSeconds = 300,
-            screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
         setField("isScreenOffMediumModeActive", true)
@@ -2470,18 +2471,18 @@ class LocationForegroundServiceTest {
             unmockkStatic(SystemClock::class)
         }
 
-        verify { locationProvider.setSingleShotStartImmediately(true) }
-        verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
+        assertEquals(120_000L, getField("wakeScreenOnIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
     }
 
     @Test
-    fun `screen on after long sleep resets to normal interval`() {
+    fun `screen on after long sleep clears stationary backoff and uses wake interval`() {
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
             interval = 5000L,
             screenOffCheckIntervalSeconds = 60,
             screenOffMaxIntervalSeconds = 300,
-            screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
         setField("isScreenOffMediumModeActive", true)
@@ -2501,8 +2502,38 @@ class LocationForegroundServiceTest {
 
         assertFalse(getField("isScreenOffMediumModeActive"))
         assertEquals(5_000L, getField("screenOffPollingIntervalMs"))
-        verify { locationProvider.setSingleShotStartImmediately(true) }
-        verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
+        assertEquals(120_000L, getField("wakeScreenOnIntervalMs"))
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
+    }
+
+    @Test
+    fun `wake screen-on polling interval increases by thirty seconds after a fix`() = runServiceTest {
+        every { dbHelper.saveLocation(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns 1L
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOff", false)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("wakeScreenOnStartedAtMs", 100_000L)
+        setField("wakeScreenOnIntervalMs", 120_000L)
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returnsMany listOf(200_000L, 200_000L, 200_000L, 200_000L)
+
+        try {
+            invokeHandleLocationUpdate(realLocation(52.52000, 13.40500))
+            advanceUntilIdle()
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        assertEquals(150_000L, getField("wakeScreenOnIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(any()) }
+        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.requestLocationUpdates(150_000L, 0f, any(), any()) }
     }
 
     @Test
@@ -2573,7 +2604,6 @@ class LocationForegroundServiceTest {
             syncIntervalSeconds = 180,
             screenOffCheckIntervalSeconds = 60,
             screenOffMaxIntervalSeconds = 300,
-            screenOffLongThresholdSeconds = 900,
             filterInaccurateLocations = false
         ))
         setField("isScreenOffMediumModeActive", true)

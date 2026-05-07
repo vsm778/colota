@@ -70,7 +70,6 @@ class NativeLocationService {
       screenOnSyncInterval: settings.screenOnSyncInterval,
       screenOffCheckInterval: settings.screenOffCheckInterval,
       screenOffMaxInterval: settings.screenOffMaxInterval,
-      screenOffLongThreshold: settings.screenOffLongThreshold,
       screenOffBackoffMultiplier: settings.screenOffBackoffMultiplier,
       filterInaccurateLocations: settings.filterInaccurateLocations,
       accuracyThreshold: settings.accuracyThreshold,

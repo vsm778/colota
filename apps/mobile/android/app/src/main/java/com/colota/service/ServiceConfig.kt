@@ -27,7 +27,6 @@ data class ServiceConfig(
     val screenOnSyncIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
     val screenOffCheckIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
     val screenOffMaxIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
-    val screenOffLongThresholdSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
     val screenOffBackoffMultiplier: Double = SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER,
     val isOfflineMode: Boolean = false,
     val syncCondition: String = "any",
@@ -58,8 +57,6 @@ data class ServiceConfig(
                     ?: SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
                 screenOffMaxIntervalSeconds = saved[SettingsKeys.SCREEN_OFF_MAX_INTERVAL]?.toIntOrNull()
                     ?: SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
-                screenOffLongThresholdSeconds = saved[SettingsKeys.SCREEN_OFF_LONG_THRESHOLD]?.toIntOrNull()
-                    ?: SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
                 screenOffBackoffMultiplier = saved[SettingsKeys.SCREEN_OFF_BACKOFF_MULTIPLIER]?.toDoubleOrNull()
                     ?: SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER,
                 isOfflineMode = saved["isOfflineMode"]?.toBoolean() ?: false,
@@ -110,7 +107,6 @@ data class ServiceConfig(
                 screenOnSyncIntervalSeconds = config.getIntOrNull("screenOnSyncInterval") ?: dbConfig.screenOnSyncIntervalSeconds,
                 screenOffCheckIntervalSeconds = config.getIntOrNull("screenOffCheckInterval") ?: dbConfig.screenOffCheckIntervalSeconds,
                 screenOffMaxIntervalSeconds = config.getIntOrNull("screenOffMaxInterval") ?: dbConfig.screenOffMaxIntervalSeconds,
-                screenOffLongThresholdSeconds = config.getIntOrNull("screenOffLongThreshold") ?: dbConfig.screenOffLongThresholdSeconds,
                 screenOffBackoffMultiplier = config.getDoubleOrNull("screenOffBackoffMultiplier") ?: dbConfig.screenOffBackoffMultiplier,
                 isOfflineMode = config.getBooleanOrNull("isOfflineMode") ?: dbConfig.isOfflineMode,
                 syncCondition = config.getStringOrNull("syncCondition") ?: dbConfig.syncCondition,
@@ -137,7 +133,6 @@ data class ServiceConfig(
                 screenOnSyncIntervalSeconds = extras.getIntOrDefault("screenOnSyncInterval", dbConfig.screenOnSyncIntervalSeconds),
                 screenOffCheckIntervalSeconds = extras.getIntOrDefault("screenOffCheckInterval", dbConfig.screenOffCheckIntervalSeconds),
                 screenOffMaxIntervalSeconds = extras.getIntOrDefault("screenOffMaxInterval", dbConfig.screenOffMaxIntervalSeconds),
-                screenOffLongThresholdSeconds = extras.getIntOrDefault("screenOffLongThreshold", dbConfig.screenOffLongThresholdSeconds),
                 screenOffBackoffMultiplier = extras.getDoubleOrDefault("screenOffBackoffMultiplier", dbConfig.screenOffBackoffMultiplier),
                 isOfflineMode = extras.getBooleanOrDefault("isOfflineMode", dbConfig.isOfflineMode),
                 syncCondition = extras.getStringOrDefault("syncCondition", dbConfig.syncCondition) ?: "any",
@@ -164,7 +159,6 @@ data class ServiceConfig(
             putExtra("screenOnSyncInterval", screenOnSyncIntervalSeconds)
             putExtra("screenOffCheckInterval", screenOffCheckIntervalSeconds)
             putExtra("screenOffMaxInterval", screenOffMaxIntervalSeconds)
-            putExtra("screenOffLongThreshold", screenOffLongThresholdSeconds)
             putExtra("screenOffBackoffMultiplier", screenOffBackoffMultiplier)
             putExtra("isOfflineMode", isOfflineMode)
             putExtra("syncCondition", syncCondition)

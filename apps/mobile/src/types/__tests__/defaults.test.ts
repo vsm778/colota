@@ -68,7 +68,6 @@ describe("DEFAULT_SETTINGS", () => {
       "screenOnSyncInterval",
       "screenOffCheckInterval",
       "screenOffMaxInterval",
-      "screenOffLongThreshold",
       "screenOffBackoffMultiplier",
       "isOfflineMode",
       "syncPreset",

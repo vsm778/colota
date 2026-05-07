@@ -1,0 +1,2 @@
+- Wake polling now restarts at 2 minutes after turning the screen on, then ramps by 30 seconds for the first 15 minutes
+- Removed unused long-sleep backoff setting and simplified tracking/sync internals for cleaner maintenance
