@@ -243,6 +243,10 @@ export interface TrackingPresetConfig {
 }
 
 export const DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS = 300
+export const DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS = 60
+export const DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS = 900
+export const DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS = 1800
+export const DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER = 2.0
 
 export const TRACKING_PRESETS = {
   instant: {
@@ -299,6 +303,10 @@ export interface Settings {
   syncInterval: number
   retryInterval: number
   screenOnSyncInterval: number
+  screenOffCheckInterval: number
+  screenOffMaxInterval: number
+  screenOffLongThreshold: number
+  screenOffBackoffMultiplier: number
   isOfflineMode: boolean
   syncCondition: SyncCondition
   syncSsid: string
@@ -317,6 +325,10 @@ export const DEFAULT_SETTINGS: Settings = {
   syncInterval: TRACKING_PRESETS.balanced.syncInterval,
   retryInterval: TRACKING_PRESETS.balanced.retryInterval,
   screenOnSyncInterval: DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
+  screenOffCheckInterval: DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
+  screenOffMaxInterval: DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
+  screenOffLongThreshold: DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
+  screenOffBackoffMultiplier: DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER,
   filterInaccurateLocations: false,
   accuracyThreshold: 50,
   syncPreset: "balanced",

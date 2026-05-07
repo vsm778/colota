@@ -1350,6 +1350,78 @@ class LocationForegroundServiceTest {
     }
 
     @Test
+    fun `setupLocationUpdates uses configured screen-off check interval when screen is off`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            minUpdateDistance = 50f,
+            screenOffCheckIntervalSeconds = 45,
+            screenOffMaxIntervalSeconds = 300,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 45_000L)
+
+        invokeSetupLocationUpdates()
+
+        verify { locationProvider.requestLocationUpdates(45_000L, 50f, any(), any()) }
+    }
+
+    @Test
+    fun `screen-off polling interval doubles until max cap`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 180,
+            screenOffBackoffMultiplier = 2.0,
+            filterInaccurateLocations = false
+        ))
+        val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", existingCallback)
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeMaybeAdvanceScreenOffPollingInterval()
+
+        assertEquals(120_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.requestLocationUpdates(120_000L, 0f, any(), any()) }
+
+        clearMocks(locationProvider)
+        val nextCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", nextCallback)
+
+        invokeMaybeAdvanceScreenOffPollingInterval()
+
+        assertEquals(180_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(nextCallback) }
+        verify { locationProvider.requestLocationUpdates(180_000L, 0f, any(), any()) }
+    }
+
+    @Test
+    fun `screen-off polling interval uses configured multiplier`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 1.5,
+            filterInaccurateLocations = false
+        ))
+        val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", existingCallback)
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeMaybeAdvanceScreenOffPollingInterval()
+
+        assertEquals(90_000L, getField("screenOffPollingIntervalMs"))
+        verify { locationProvider.removeLocationUpdates(existingCallback) }
+        verify { locationProvider.requestLocationUpdates(90_000L, 0f, any(), any()) }
+    }
+
+    @Test
     fun `handleRecheckProfiles restarts updates when effective OS filter flips to bypassed`() = runServiceTest {
         setField("config", ServiceConfig(
             endpoint = "https://example.com",
@@ -2124,6 +2196,22 @@ class LocationForegroundServiceTest {
     }
 
     @Test
+    fun `screen on after long sleep requests location immediately`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            screenOffLongThresholdSeconds = 900,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOffLongSleepActive", true)
+
+        invokeHandleScreenStateChange(false)
+
+        verify { locationProvider.requestLocationUpdates(5000L, 0f, any(), any()) }
+        assertFalse(getField("isScreenOffLongSleepActive"))
+    }
+
+    @Test
     fun `enterPauseZone flushes queue when sync is allowed`() = testScope.runTest {
         every { syncManager.isSyncAllowed() } returns true
         val location = mockLocation()
@@ -2256,6 +2344,20 @@ class LocationForegroundServiceTest {
         )
         method.isAccessible = true
         method.invoke(service, nowElapsedMs)
+    }
+
+    private fun invokeMaybeAdvanceScreenOffPollingInterval() {
+        val method = LocationForegroundService::class.java.getDeclaredMethod("maybeAdvanceScreenOffPollingInterval")
+        method.isAccessible = true
+        method.invoke(service)
+    }
+
+    private fun invokeHandleScreenStateChange(screenOff: Boolean) {
+        val method = LocationForegroundService::class.java.getDeclaredMethod(
+            "handleScreenStateChange", Boolean::class.javaPrimitiveType
+        )
+        method.isAccessible = true
+        method.invoke(service, screenOff)
     }
 
     private fun geofence(

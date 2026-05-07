@@ -42,6 +42,10 @@ export const SettingsService = {
       case "syncInterval":
       case "retryInterval":
       case "screenOnSyncInterval":
+      case "screenOffCheckInterval":
+      case "screenOffMaxInterval":
+      case "screenOffLongThreshold":
+      case "screenOffBackoffMultiplier":
       case "accuracyThreshold":
         // Already in correct format (numbers)
         stringValue = String(value)

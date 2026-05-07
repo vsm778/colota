@@ -36,6 +36,7 @@ import com.Colota.location.LocationProviderFactory
 import com.Colota.location.LocationUpdateCallback
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
+import kotlin.math.ceil
 import java.util.Locale
 
 /** Foreground service for continuous GPS tracking and location syncing. */
@@ -61,7 +62,7 @@ class LocationForegroundService : Service() {
     @Volatile private var locationUpdateCallback: LocationUpdateCallback? = null
     @Volatile private var locationRestartJob: Job? = null
     @Volatile private var trackingHeartbeatJob: Job? = null
-    @Volatile private var screenOffDelayJob: Job? = null
+    @Volatile private var screenOffLongSleepJob: Job? = null
     @Volatile private var screenOffIdlePauseJob: Job? = null
     @Volatile private var lastFixAtMs: Long = 0L
     @Volatile private var motionDetector: MotionDetector? = null
@@ -69,8 +70,11 @@ class LocationForegroundService : Service() {
     @Volatile private var lastRequestedSyncIntervalSeconds: Int = -1
     @Volatile private var lastTrackingStartAtMs: Long = 0L
     @Volatile private var lastScreenOnSyncAtMs: Long = 0L
+    @Volatile private var lastScreenOffAtMs: Long = 0L
+    @Volatile private var screenOffPollingIntervalMs: Long = 0L
     @Volatile private var screenOffIdleAnchorLocation: Location? = null
     @Volatile private var screenOffIdlePaused: Boolean = false
+    @Volatile private var isScreenOffLongSleepActive: Boolean = false
 
     /** Debounces the burst of PROVIDERS_CHANGED broadcasts when system Location toggles (one per provider). */
     @Volatile private var lastBroadcastLocationEnabled: Boolean = true
@@ -145,22 +149,14 @@ class LocationForegroundService : Service() {
         private const val WIFI_RESUME_DEBOUNCE_MS = 2_000L
         /** Cadence at which the tracking heartbeat logs time-since-last-fix for diagnostics. */
         private const val TRACKING_HEARTBEAT_INTERVAL_MS = 5 * 60_000L
-        /** FOSS-only battery saver when the screen is off. */
-        private const val SCREEN_OFF_INTERVAL_MULTIPLIER = 3L
-        /** Minimum FOSS interval while screen-off throttling is active. */
-        private const val SCREEN_OFF_MIN_INTERVAL_MS = 60_000L
         /** Minimum FOSS distance filter while screen-off profile bypass would otherwise use 0m. */
         private const val SCREEN_OFF_MIN_DISTANCE_METERS = 10f
-        /** Background sync cadence for FOSS instant mode while the screen is off. */
-        private const val SCREEN_OFF_SYNC_INTERVAL_SECONDS = 600
         /** Skip the startup instant flush for a short window on FOSS screen-off starts. */
         private const val SCREEN_OFF_STARTUP_FLUSH_GUARD_MS = 60_000L
         /** Pause GPS when screen-off movement stays within this radius for the full timeout. */
         private const val SCREEN_OFF_IDLE_DISTANCE_METERS = 25f
         /** Time window for screen-off idle detection before GPS is paused. */
         private const val SCREEN_OFF_IDLE_TIMEOUT_MS = 5 * 60_000L
-        /** Delay before applying screen-off throttling to avoid churn on short locks/wakes. */
-        private const val SCREEN_OFF_DELAY_MS = 2 * 60_000L
         const val ACTION_MANUAL_FLUSH = "com.Colota.ACTION_MANUAL_FLUSH"
         const val ACTION_RECHECK_ZONE = "com.Colota.RECHECK_PAUSE_ZONE"
         const val ACTION_REFRESH_NOTIFICATION = "com.Colota.REFRESH_NOTIFICATION"
@@ -372,6 +368,7 @@ class LocationForegroundService : Service() {
             withContext(Dispatchers.Main) {
                 stopLocationUpdates()
                 syncManager.stopPeriodicSync()
+                initializeScreenStatePolicyOnStart()
 
                 setupLocationUpdates()
                 syncManager.startPeriodicSync()
@@ -399,8 +396,8 @@ class LocationForegroundService : Service() {
         motionDetector?.disarm()
         entryDelayJob?.cancel()
         entryDelayJob = null
-        screenOffDelayJob?.cancel()
-        screenOffDelayJob = null
+        screenOffLongSleepJob?.cancel()
+        screenOffLongSleepJob = null
         screenOffIdlePauseJob?.cancel()
         screenOffIdlePauseJob = null
         pendingPauseZone = null
@@ -526,20 +523,13 @@ class LocationForegroundService : Service() {
 
     private fun getEffectiveIntervalMs(): Long {
         if (!::config.isInitialized) return 0L
-        return if (isFossProvider() && isScreenOff) {
-            maxOf(config.interval * SCREEN_OFF_INTERVAL_MULTIPLIER, SCREEN_OFF_MIN_INTERVAL_MS)
-        } else {
-            config.interval
-        }
+        if (!isScreenOff || isScreenOffLongSleepActive) return config.interval
+        return screenOffPollingIntervalMs.takeIf { it > 0L } ?: getConfiguredScreenOffInitialIntervalMs()
     }
 
     private fun getEffectiveSyncIntervalSeconds(): Int {
         if (!::config.isInitialized) return 0
-        return if (isFossProvider() && isScreenOff && config.syncIntervalSeconds == 0) {
-            SCREEN_OFF_SYNC_INTERVAL_SECONDS
-        } else {
-            config.syncIntervalSeconds
-        }
+        return config.syncIntervalSeconds
     }
 
     private fun shouldUseScreenOffIdlePause(): Boolean =
@@ -612,9 +602,117 @@ class LocationForegroundService : Service() {
         AppLogger.i(TAG, "Screen-off idle pause cleared - GPS resumed")
     }
 
+    private fun getConfiguredScreenOffInitialIntervalMs(): Long {
+        val initialSeconds = config.screenOffCheckIntervalSeconds.coerceAtLeast(1)
+        return initialSeconds * 1000L
+    }
+
+    private fun getConfiguredScreenOffMaxIntervalMs(): Long {
+        val maxSeconds = maxOf(config.screenOffMaxIntervalSeconds, config.screenOffCheckIntervalSeconds.coerceAtLeast(1))
+        return maxSeconds * 1000L
+    }
+
+    private fun isLongScreenOffThresholdReached(nowElapsedMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        if (!::config.isInitialized) return false
+        val thresholdMs = config.screenOffLongThresholdSeconds.coerceAtLeast(0) * 1000L
+        if (thresholdMs <= 0L || lastScreenOffAtMs <= 0L) return false
+        return (nowElapsedMs - lastScreenOffAtMs) >= thresholdMs
+    }
+
+    private fun initializeScreenStatePolicyOnStart() {
+        if (isScreenOff) {
+            enterScreenOffMode(resetWindow = true)
+        } else {
+            clearScreenOffModeState()
+        }
+    }
+
+    private fun enterScreenOffMode(resetWindow: Boolean) {
+        if (!::config.isInitialized) return
+        if (resetWindow || lastScreenOffAtMs <= 0L) {
+            lastScreenOffAtMs = SystemClock.elapsedRealtime()
+            screenOffPollingIntervalMs = getConfiguredScreenOffInitialIntervalMs()
+            isScreenOffLongSleepActive = false
+        } else if (screenOffPollingIntervalMs <= 0L) {
+            screenOffPollingIntervalMs = getConfiguredScreenOffInitialIntervalMs()
+        }
+        scheduleScreenOffLongSleep()
+    }
+
+    private fun clearScreenOffModeState() {
+        screenOffLongSleepJob?.cancel()
+        screenOffLongSleepJob = null
+        lastScreenOffAtMs = 0L
+        screenOffPollingIntervalMs = 0L
+        isScreenOffLongSleepActive = false
+    }
+
+    private fun scheduleScreenOffLongSleep() {
+        screenOffLongSleepJob?.cancel()
+        if (!::config.isInitialized) return
+        val thresholdMs = config.screenOffLongThresholdSeconds.coerceAtLeast(0) * 1000L
+        if (thresholdMs <= 0L) return
+
+        val scope = serviceScope ?: return
+        val remainingMs = thresholdMs - (SystemClock.elapsedRealtime() - lastScreenOffAtMs)
+        if (remainingMs <= 0L) {
+            activateLongScreenOffMode()
+            return
+        }
+
+        screenOffLongSleepJob = scope.launch {
+            delay(remainingMs)
+            withContext(Dispatchers.Main) {
+                screenOffLongSleepJob = null
+                if (isScreenOff && isLongScreenOffThresholdReached()) {
+                    activateLongScreenOffMode()
+                }
+            }
+        }
+    }
+
+    private fun activateLongScreenOffMode() {
+        if (isScreenOffLongSleepActive) return
+        isScreenOffLongSleepActive = true
+        clearScreenOffIdlePauseTracking()
+        if (isLocationUpdatesRegistered()) {
+            stopLocationUpdates()
+        }
+        refreshNotificationForCurrentState()
+        AppLogger.i(TAG, "Long screen-off threshold reached - GPS paused until wake")
+    }
+
+    private fun maybeAdvanceScreenOffPollingInterval() {
+        if (!isScreenOff || isScreenOffLongSleepActive || !::config.isInitialized) return
+
+        val currentIntervalMs = screenOffPollingIntervalMs.takeIf { it > 0L } ?: getConfiguredScreenOffInitialIntervalMs()
+        val multiplier = config.screenOffBackoffMultiplier.coerceIn(1.5, 3.0)
+        val nextIntervalMs = minOf(
+            ceil(currentIntervalMs * multiplier).toLong(),
+            getConfiguredScreenOffMaxIntervalMs()
+        )
+        if (nextIntervalMs == currentIntervalMs) return
+
+        screenOffPollingIntervalMs = nextIntervalMs
+        if (!isLocationUpdatesRegistered() || isWifiPaused || isMotionlessPaused) return
+
+        AppLogger.i(TAG, "Screen-off polling interval increased: ${currentIntervalMs}ms -> ${nextIntervalMs}ms")
+        stopLocationUpdates()
+        setupLocationUpdates()
+    }
+
+    private fun requestImmediateLocationAfterLongScreenOff() {
+        if (isWifiPaused || isMotionlessPaused) return
+        clearScreenOffIdlePauseState()
+        if (isLocationUpdatesRegistered()) {
+            stopLocationUpdates()
+        }
+        setupLocationUpdates()
+        AppLogger.i(TAG, "Woke after long screen-off period - requesting fresh location immediately")
+    }
+
     private fun applyScreenStateLocationPolicy() {
-        if (!::config.isInitialized || !isFossProvider()) return
-        if (!isLocationUpdatesRegistered()) return
+        if (!::config.isInitialized || !isLocationUpdatesRegistered()) return
         if (isWifiPaused || isMotionlessPaused) return
 
         val nextIntervalMs = getEffectiveIntervalMs()
@@ -627,7 +725,7 @@ class LocationForegroundService : Service() {
     }
 
     private fun applyScreenStateSyncPolicy() {
-        if (!::config.isInitialized || !isFossProvider()) return
+        if (!::config.isInitialized) return
 
         val nextSyncIntervalSeconds = getEffectiveSyncIntervalSeconds()
         if (nextSyncIntervalSeconds == lastRequestedSyncIntervalSeconds) return
@@ -644,18 +742,21 @@ class LocationForegroundService : Service() {
     }
 
     private fun handleScreenStateChange(screenOff: Boolean) {
-        if (!isFossProvider()) return
-
         if (screenOff) {
-            scheduleScreenOffPolicy()
+            enterScreenOffMode(resetWindow = true)
+            applyScreenStateLocationPolicy()
             return
         }
 
-        screenOffDelayJob?.cancel()
-        screenOffDelayJob = null
+        val wokeFromLongScreenOff = isScreenOffLongSleepActive || isLongScreenOffThresholdReached()
+        clearScreenOffModeState()
         clearScreenOffIdlePauseTracking()
         resumeFromScreenOffIdlePause()
-        applyScreenStateLocationPolicy()
+        if (wokeFromLongScreenOff) {
+            requestImmediateLocationAfterLongScreenOff()
+        } else {
+            applyScreenStateLocationPolicy()
+        }
         applyScreenStateSyncPolicy()
         maybeFlushQueueOnScreenOn()
     }
@@ -675,20 +776,6 @@ class LocationForegroundService : Service() {
         if (!syncManager.isSyncAllowed()) return false
         if (syncManager.getCachedQueuedCount() <= 0) return false
         return (nowElapsedMs - lastScreenOnSyncAtMs) >= minIntervalMs
-    }
-
-    private fun scheduleScreenOffPolicy() {
-        screenOffDelayJob?.cancel()
-        val scope = serviceScope ?: return
-        screenOffDelayJob = scope.launch {
-            delay(SCREEN_OFF_DELAY_MS)
-            screenOffDelayJob = null
-            if (!isScreenOff) return@launch
-            withContext(Dispatchers.Main) {
-                applyScreenStateLocationPolicy()
-                applyScreenStateSyncPolicy()
-            }
-        }
     }
 
     /**
@@ -924,6 +1011,7 @@ class LocationForegroundService : Service() {
 
             withContext(Dispatchers.Main) {
                 updateNotification(location.latitude, location.longitude)
+                maybeAdvanceScreenOffPollingInterval()
             }
         }
     }

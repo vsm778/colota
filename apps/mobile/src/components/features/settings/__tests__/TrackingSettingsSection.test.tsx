@@ -126,6 +126,7 @@ describe("TrackingSettingsSection", () => {
 
     expect(getByText("Tracking Parameters")).toBeTruthy()
     expect(getByText("Quality Filters")).toBeTruthy()
+    expect(getByText("Screen-Off Sleep Mode")).toBeTruthy()
   })
 
   it("clamps interval to min 1 on blur", () => {
@@ -139,5 +140,54 @@ describe("TrackingSettingsSection", () => {
 
     expect(mockOnSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ interval: 1 }))
     expect(mockOnImmediateSave).toHaveBeenCalledWith(expect.objectContaining({ interval: 1 }))
+  })
+
+  it("clamps screen-off max interval to the screen-off check interval", () => {
+    const { getByText, getAllByDisplayValue } = renderComponent({
+      screenOffCheckInterval: 60,
+      screenOffMaxInterval: 120
+    })
+
+    fireEvent.press(getByText("Advanced Tracking"))
+
+    const maxInput = getAllByDisplayValue("120")[0]
+    fireEvent.changeText(maxInput, "30")
+    fireEvent(maxInput, "blur")
+
+    expect(mockOnSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        screenOffCheckInterval: 60,
+        screenOffMaxInterval: 60
+      })
+    )
+    expect(mockOnImmediateSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        screenOffCheckInterval: 60,
+        screenOffMaxInterval: 60
+      })
+    )
+  })
+
+  it("clamps screen-off backoff multiplier to default when outside 1.5 to 3.0", () => {
+    const { getByText, getAllByDisplayValue } = renderComponent({
+      screenOffBackoffMultiplier: 2.7
+    })
+
+    fireEvent.press(getByText("Advanced Tracking"))
+
+    const multiplierInput = getAllByDisplayValue("2.7")[0]
+    fireEvent.changeText(multiplierInput, "4")
+    fireEvent(multiplierInput, "blur")
+
+    expect(mockOnSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        screenOffBackoffMultiplier: 2
+      })
+    )
+    expect(mockOnImmediateSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        screenOffBackoffMultiplier: 2
+      })
+    )
   })
 })

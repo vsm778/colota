@@ -25,6 +25,10 @@ data class ServiceConfig(
     val filterInaccurateLocations: Boolean = false,
     val retryIntervalSeconds: Int = 30,
     val screenOnSyncIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
+    val screenOffCheckIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
+    val screenOffMaxIntervalSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
+    val screenOffLongThresholdSeconds: Int = SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
+    val screenOffBackoffMultiplier: Double = SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER,
     val isOfflineMode: Boolean = false,
     val syncCondition: String = "any",
     val syncSsid: String = "",
@@ -50,6 +54,14 @@ data class ServiceConfig(
                 retryIntervalSeconds = saved["retryInterval"]?.toIntOrNull() ?: 30,
                 screenOnSyncIntervalSeconds = saved[SettingsKeys.SCREEN_ON_SYNC_INTERVAL]?.toIntOrNull()
                     ?: SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS,
+                screenOffCheckIntervalSeconds = saved[SettingsKeys.SCREEN_OFF_CHECK_INTERVAL]?.toIntOrNull()
+                    ?: SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS,
+                screenOffMaxIntervalSeconds = saved[SettingsKeys.SCREEN_OFF_MAX_INTERVAL]?.toIntOrNull()
+                    ?: SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS,
+                screenOffLongThresholdSeconds = saved[SettingsKeys.SCREEN_OFF_LONG_THRESHOLD]?.toIntOrNull()
+                    ?: SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS,
+                screenOffBackoffMultiplier = saved[SettingsKeys.SCREEN_OFF_BACKOFF_MULTIPLIER]?.toDoubleOrNull()
+                    ?: SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER,
                 isOfflineMode = saved["isOfflineMode"]?.toBoolean() ?: false,
                 syncCondition = saved["syncCondition"] ?: if (saved["isWifiOnlySync"]?.toBoolean() == true) "wifi_any" else "any",
                 syncSsid = saved["syncSsid"] ?: "",
@@ -96,6 +108,10 @@ data class ServiceConfig(
                 filterInaccurateLocations = config.getBooleanOrNull("filterInaccurateLocations") ?: dbConfig.filterInaccurateLocations,
                 retryIntervalSeconds = config.getIntOrNull("retryInterval") ?: dbConfig.retryIntervalSeconds,
                 screenOnSyncIntervalSeconds = config.getIntOrNull("screenOnSyncInterval") ?: dbConfig.screenOnSyncIntervalSeconds,
+                screenOffCheckIntervalSeconds = config.getIntOrNull("screenOffCheckInterval") ?: dbConfig.screenOffCheckIntervalSeconds,
+                screenOffMaxIntervalSeconds = config.getIntOrNull("screenOffMaxInterval") ?: dbConfig.screenOffMaxIntervalSeconds,
+                screenOffLongThresholdSeconds = config.getIntOrNull("screenOffLongThreshold") ?: dbConfig.screenOffLongThresholdSeconds,
+                screenOffBackoffMultiplier = config.getDoubleOrNull("screenOffBackoffMultiplier") ?: dbConfig.screenOffBackoffMultiplier,
                 isOfflineMode = config.getBooleanOrNull("isOfflineMode") ?: dbConfig.isOfflineMode,
                 syncCondition = config.getStringOrNull("syncCondition") ?: dbConfig.syncCondition,
                 syncSsid = config.getStringOrNull("syncSsid") ?: dbConfig.syncSsid,
@@ -119,6 +135,10 @@ data class ServiceConfig(
                 filterInaccurateLocations = extras.getBooleanOrDefault("filterInaccurateLocations", dbConfig.filterInaccurateLocations),
                 retryIntervalSeconds = extras.getIntOrDefault("retryInterval", dbConfig.retryIntervalSeconds),
                 screenOnSyncIntervalSeconds = extras.getIntOrDefault("screenOnSyncInterval", dbConfig.screenOnSyncIntervalSeconds),
+                screenOffCheckIntervalSeconds = extras.getIntOrDefault("screenOffCheckInterval", dbConfig.screenOffCheckIntervalSeconds),
+                screenOffMaxIntervalSeconds = extras.getIntOrDefault("screenOffMaxInterval", dbConfig.screenOffMaxIntervalSeconds),
+                screenOffLongThresholdSeconds = extras.getIntOrDefault("screenOffLongThreshold", dbConfig.screenOffLongThresholdSeconds),
+                screenOffBackoffMultiplier = extras.getDoubleOrDefault("screenOffBackoffMultiplier", dbConfig.screenOffBackoffMultiplier),
                 isOfflineMode = extras.getBooleanOrDefault("isOfflineMode", dbConfig.isOfflineMode),
                 syncCondition = extras.getStringOrDefault("syncCondition", dbConfig.syncCondition) ?: "any",
                 syncSsid = extras.getStringOrDefault("syncSsid", dbConfig.syncSsid) ?: "",
@@ -142,6 +162,10 @@ data class ServiceConfig(
             putExtra("filterInaccurateLocations", filterInaccurateLocations)
             putExtra("retryInterval", retryIntervalSeconds)
             putExtra("screenOnSyncInterval", screenOnSyncIntervalSeconds)
+            putExtra("screenOffCheckInterval", screenOffCheckIntervalSeconds)
+            putExtra("screenOffMaxInterval", screenOffMaxIntervalSeconds)
+            putExtra("screenOffLongThreshold", screenOffLongThresholdSeconds)
+            putExtra("screenOffBackoffMultiplier", screenOffBackoffMultiplier)
             putExtra("isOfflineMode", isOfflineMode)
             putExtra("syncCondition", syncCondition)
             putExtra("syncSsid", syncSsid)
@@ -164,6 +188,9 @@ private fun Bundle.getFloatOrDefault(key: String, default: Float): Float =
 
 private fun Bundle.getIntOrDefault(key: String, default: Int): Int =
     if (containsKey(key)) getInt(key) else default
+
+private fun Bundle.getDoubleOrDefault(key: String, default: Double): Double =
+    if (containsKey(key)) getDouble(key) else default
 
 private fun Bundle.getBooleanOrDefault(key: String, default: Boolean): Boolean =
     if (containsKey(key)) getBoolean(key) else default

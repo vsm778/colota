@@ -8,6 +8,7 @@ package com.Colota.service
 import android.content.Intent
 import android.os.Bundle
 import com.Colota.data.DatabaseHelper
+import com.Colota.data.SettingsKeys
 import com.Colota.sync.ApiFormat
 import com.facebook.react.bridge.JavaOnlyMap
 import io.mockk.every
@@ -32,6 +33,11 @@ class ServiceConfigTest {
         "accuracyThreshold" to "50.0",
         "filterInaccurateLocations" to "false",
         "retryInterval" to "30",
+        SettingsKeys.SCREEN_ON_SYNC_INTERVAL to "300",
+        SettingsKeys.SCREEN_OFF_CHECK_INTERVAL to "60",
+        SettingsKeys.SCREEN_OFF_MAX_INTERVAL to "900",
+        SettingsKeys.SCREEN_OFF_LONG_THRESHOLD to "1800",
+        SettingsKeys.SCREEN_OFF_BACKOFF_MULTIPLIER to "1.5",
         "isOfflineMode" to "false",
         "syncCondition" to "any",
         "syncSsid" to "",
@@ -73,6 +79,11 @@ class ServiceConfigTest {
         assertEquals(50.0f, config.accuracyThreshold, 0.001f)
         assertFalse(config.filterInaccurateLocations)
         assertEquals(30, config.retryIntervalSeconds)
+        assertEquals(300, config.screenOnSyncIntervalSeconds)
+        assertEquals(60, config.screenOffCheckIntervalSeconds)
+        assertEquals(900, config.screenOffMaxIntervalSeconds)
+        assertEquals(1800, config.screenOffLongThresholdSeconds)
+        assertEquals(1.5, config.screenOffBackoffMultiplier, 0.0001)
         assertFalse(config.isOfflineMode)
         assertEquals("POST", config.httpMethod)
     }
@@ -89,6 +100,11 @@ class ServiceConfigTest {
         assertEquals(50.0f, config.accuracyThreshold, 0.001f)
         assertFalse(config.filterInaccurateLocations)
         assertEquals(30, config.retryIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS, config.screenOnSyncIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS, config.screenOffCheckIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS, config.screenOffMaxIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS, config.screenOffLongThresholdSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER, config.screenOffBackoffMultiplier, 0.0001)
         assertFalse(config.isOfflineMode)
         assertEquals("any", config.syncCondition)
         assertEquals("POST", config.httpMethod)
@@ -170,6 +186,11 @@ class ServiceConfigTest {
         assertEquals(50.0f, config.accuracyThreshold, 0.001f)
         assertFalse(config.filterInaccurateLocations)
         assertEquals(30, config.retryIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_ON_SYNC_INTERVAL_SECONDS, config.screenOnSyncIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_CHECK_INTERVAL_SECONDS, config.screenOffCheckIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_MAX_INTERVAL_SECONDS, config.screenOffMaxIntervalSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_LONG_THRESHOLD_SECONDS, config.screenOffLongThresholdSeconds)
+        assertEquals(SettingsKeys.DEFAULT_SCREEN_OFF_BACKOFF_MULTIPLIER, config.screenOffBackoffMultiplier, 0.0001)
         assertFalse(config.isOfflineMode)
         assertEquals("any", config.syncCondition)
         assertNull(config.fieldMap)
@@ -233,6 +254,11 @@ class ServiceConfigTest {
             every { getFloat("accuracyThreshold") } returns 25.0f
             every { getBoolean("filterInaccurateLocations") } returns true
             every { getInt("retryInterval") } returns 60
+            every { getInt("screenOnSyncInterval") } returns 120
+            every { getInt("screenOffCheckInterval") } returns 45
+            every { getInt("screenOffMaxInterval") } returns 600
+            every { getInt("screenOffLongThreshold") } returns 900
+            every { getDouble("screenOffBackoffMultiplier") } returns 1.8
             every { getBoolean("isOfflineMode") } returns true
             every { getString("syncCondition") } returns "wifi_any"
             every { getString("syncSsid") } returns ""
@@ -254,6 +280,11 @@ class ServiceConfigTest {
         assertEquals(25.0f, config.accuracyThreshold, 0.001f)
         assertTrue(config.filterInaccurateLocations)
         assertEquals(60, config.retryIntervalSeconds)
+        assertEquals(120, config.screenOnSyncIntervalSeconds)
+        assertEquals(45, config.screenOffCheckIntervalSeconds)
+        assertEquals(600, config.screenOffMaxIntervalSeconds)
+        assertEquals(900, config.screenOffLongThresholdSeconds)
+        assertEquals(1.8, config.screenOffBackoffMultiplier, 0.0001)
         assertTrue(config.isOfflineMode)
         assertEquals("wifi_any", config.syncCondition)
         assertEquals("""{"lat":"latitude"}""", config.fieldMap)
@@ -269,6 +300,8 @@ class ServiceConfigTest {
             endpoint = "https://test.com",
             interval = 10000L,
             syncIntervalSeconds = 300,
+            screenOffCheckIntervalSeconds = 45,
+            screenOffBackoffMultiplier = 1.8,
             httpMethod = "GET"
         )
         val intent = mockk<Intent>(relaxed = true)
@@ -277,6 +310,8 @@ class ServiceConfigTest {
         verify { intent.putExtra("endpoint", "https://test.com") }
         verify { intent.putExtra("interval", 10000L) }
         verify { intent.putExtra("syncInterval", 300) }
+        verify { intent.putExtra("screenOffCheckInterval", 45) }
+        verify { intent.putExtra("screenOffBackoffMultiplier", 1.8) }
         verify { intent.putExtra("httpMethod", "GET") }
     }
 
