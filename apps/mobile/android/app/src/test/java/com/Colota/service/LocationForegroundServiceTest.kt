@@ -2470,8 +2470,7 @@ class LocationForegroundServiceTest {
             unmockkStatic(SystemClock::class)
         }
 
-        verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
-        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.setSingleShotStartImmediately(true) }
         verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
     }
 
@@ -2502,9 +2501,102 @@ class LocationForegroundServiceTest {
 
         assertFalse(getField("isScreenOffMediumModeActive"))
         assertEquals(5_000L, getField("screenOffPollingIntervalMs"))
-        verify { locationProvider.setSingleShotStartImmediately(false) }
+        verify { locationProvider.setSingleShotStartImmediately(true) }
         verify { locationProvider.requestLocationUpdates(5_000L, 0f, any(), any()) }
-        verify(exactly = 0) { locationProvider.setSingleShotStartImmediately(true) }
+    }
+
+    @Test
+    fun `screen-off stationary backoff raises sync interval from configured base`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            syncIntervalSeconds = 180,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffBackoffMultiplier = 2.0,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+        setField("isScreenOff", true)
+        setField("screenOffPollingIntervalMs", 60_000L)
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52000, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52003, 13.40500))
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52005, 13.40500))
+
+        val method = LocationForegroundService::class.java.getDeclaredMethod("getEffectiveSyncIntervalSeconds")
+        method.isAccessible = true
+
+        assertEquals(300, method.invoke(service))
+    }
+
+    @Test
+    fun `movement resets stationary sync interval to configured base`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            syncIntervalSeconds = 180,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            minUpdateDistance = 20f,
+            filterInaccurateLocations = false
+        ))
+        val existingCallback = mockk<LocationUpdateCallback>(relaxed = true)
+        setField("locationUpdateCallback", existingCallback)
+        setField("isScreenOff", true)
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 300_000L)
+        setField("screenOffSyncIntervalSeconds", 300)
+        getField<ArrayDeque<Location>>("screenOffRecentLocations").apply {
+            clear()
+            repeat(3) {
+                addLast(mockk(relaxed = true) {
+                    every { distanceTo(any()) } returns 100f
+                })
+            }
+        }
+
+        invokeUpdateScreenOffBackoffPolicy(realLocation(52.52100, 13.40500))
+
+        val method = LocationForegroundService::class.java.getDeclaredMethod("getEffectiveSyncIntervalSeconds")
+        method.isAccessible = true
+
+        assertEquals(180, method.invoke(service))
+    }
+
+    @Test
+    fun `long sleep wake resets sync interval to configured base`() {
+        setField("config", ServiceConfig(
+            endpoint = "https://example.com",
+            interval = 5000L,
+            syncIntervalSeconds = 180,
+            screenOffCheckIntervalSeconds = 60,
+            screenOffMaxIntervalSeconds = 300,
+            screenOffLongThresholdSeconds = 900,
+            filterInaccurateLocations = false
+        ))
+        setField("isScreenOffMediumModeActive", true)
+        setField("screenOffPollingIntervalMs", 300_000L)
+        setField("screenOffSyncIntervalSeconds", 300)
+        setField("lastRequestedIntervalMs", 300_000L)
+        setField("lastRequestedSyncIntervalSeconds", 300)
+        setField("lastScreenOffAtMs", 100_000L)
+        setField("locationUpdateCallback", mockk<LocationUpdateCallback>(relaxed = true))
+
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 100_000L + 901_000L
+
+        try {
+            invokeHandleScreenStateChange(false)
+        } finally {
+            unmockkStatic(SystemClock::class)
+        }
+
+        val method = LocationForegroundService::class.java.getDeclaredMethod("getEffectiveSyncIntervalSeconds")
+        method.isAccessible = true
+
+        assertEquals(180, method.invoke(service))
     }
 
     @Test

@@ -10,6 +10,8 @@ import com.Colota.bridge.LocationServiceModule
 import com.Colota.data.DatabaseHelper
 import com.Colota.util.TimedCache
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
@@ -43,6 +45,7 @@ class SyncManager(
         private set
     @Volatile private var syncInitialized = false
     @Volatile private var consecutiveFailures = 0
+    private val syncMutex = Mutex()
 
     private val queueCountCache = TimedCache(5000L) { dbHelper.getQueuedCount() }
 
@@ -70,6 +73,7 @@ class SyncManager(
 
     fun startPeriodicSync() {
         AppLogger.d(TAG, "Starting periodic sync: interval=${syncIntervalSeconds}s, endpoint=${if (endpoint.isBlank()) "NONE" else endpoint}")
+        stopPeriodicSync()
         syncJob = scope.launch {
             while (isActive) {
                 val baseDelay = calculateNextSyncDelay()
@@ -122,7 +126,9 @@ class SyncManager(
         if (endpoint.isNotBlank()) {
             val total = dbHelper.getQueuedCount()
             AppLogger.d(TAG, "Manual flush started: $total items in queue")
-            syncQueue { sent, failed -> LocationServiceModule.sendSyncProgressEvent(sent, failed, total) }
+            runSyncPass {
+                syncQueue { sent, failed -> LocationServiceModule.sendSyncProgressEvent(sent, failed, total) }
+            }
         }
     }
 
@@ -142,22 +148,12 @@ class SyncManager(
             return
         }
 
-        // Immediate send mode (syncInterval = 0)
+        // Immediate mode still goes through the queue consumer path so capture and send stay decoupled.
         if (syncIntervalSeconds == 0 && isSyncAllowed()) {
-            AppLogger.d(TAG, "Instant send")
-            val success = networkManager.sendToEndpoint(payload, endpoint, authHeaders, httpMethod, apiFormat)
-
-            if (success) {
-                dbHelper.markLocationsSent(listOf(locationId))
-                dbHelper.removeFromQueueByLocationId(locationId)
-                invalidateQueueCache()
-                lastSuccessfulSyncTime = System.currentTimeMillis()
-                notifyQueueStateChanged()
-            } else {
-                dbHelper.incrementRetryCount(queueId, "Send failed")
-            }
+            AppLogger.d(TAG, "Instant flush requested through queue consumer")
+            manualFlush()
         }
-        // If syncInterval > 0, the periodic sync job will handle it
+        // If syncInterval > 0, the periodic sync job will handle it.
     }
 
     fun isSyncAllowed(): Boolean {
@@ -179,19 +175,23 @@ class SyncManager(
     fun invalidateQueueCache() = queueCountCache.invalidate()
 
     private suspend fun performSyncAndCheckSuccess(): Boolean {
-        val countBefore = dbHelper.getQueuedCount()
-        syncQueue(onProgress = null)
-        val countAfter = dbHelper.getQueuedCount()
+        return runSyncPass {
+            val countBefore = dbHelper.getQueuedCount()
+            syncQueue(onProgress = null)
+            val countAfter = dbHelper.getQueuedCount()
 
-        invalidateQueueCache()
+            invalidateQueueCache()
 
-        val success = countAfter < countBefore || countAfter == 0
-        if (success && countAfter == 0) {
-            lastSuccessfulSyncTime = System.currentTimeMillis()
+            val success = countAfter < countBefore || countAfter == 0
+            if (success && countAfter == 0) {
+                lastSuccessfulSyncTime = System.currentTimeMillis()
+            }
+
+            success
         }
-
-        return success
     }
+
+    private suspend fun <T> runSyncPass(block: suspend () -> T): T = syncMutex.withLock { block() }
 
     // Exponential backoff: 30s → 60s → 5min → 15min
     private suspend fun applyBackoffDelay() {

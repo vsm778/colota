@@ -63,7 +63,7 @@ class SyncManagerTest {
         syncManager.queueAndSend(1L, payload)
 
         verify(exactly = 0) { dbHelper.addToQueue(any(), any()) }
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -82,7 +82,7 @@ class SyncManagerTest {
         syncManager.queueAndSend(1L, payload)
 
         verify { dbHelper.addToQueue(1L, any()) }
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     // --- queueAndSend: instant mode ---
@@ -100,19 +100,21 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", emptyMap(), "POST") }
-        verify { dbHelper.removeFromQueueByLocationId(1L) }
+        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", emptyMap(), "POST", ApiFormat.FIELD_MAPPED) }
+        verify { dbHelper.markLocationsSent(listOf(1L)) }
+        verify { dbHelper.removeBatchFromQueue(listOf(11L)) }
     }
 
     @Test
     fun `queueAndSend instant mode increments retry on failure`() = scope.runTest {
-        every { dbHelper.addToQueue(any(), any()) } returns 42L
-
         syncManager.updateConfig(
             endpoint = "https://example.com",
             syncIntervalSeconds = 0,
@@ -124,13 +126,17 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns false
+        val queued = listOf(QueuedLocation(42L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 1, 1)
+        every { dbHelper.getQueuedLocations(50) } returns listOf(queued.first())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns false
 
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
         verify { dbHelper.incrementRetryCount(42L, "Send failed") }
-        verify(exactly = 0) { dbHelper.removeFromQueueByLocationId(any()) }
+        verify(exactly = 0) { dbHelper.removeBatchFromQueue(any()) }
+        verify(exactly = 0) { dbHelper.markLocationsSent(any()) }
     }
 
     @Test
@@ -151,7 +157,7 @@ class SyncManagerTest {
         syncManager.queueAndSend(1L, payload)
 
         verify { dbHelper.addToQueue(1L, any()) }
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     // --- queueAndSend: Wi-Fi only ---
@@ -174,7 +180,7 @@ class SyncManagerTest {
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -191,12 +197,15 @@ class SyncManagerTest {
 
         coEvery { networkManager.isNetworkAvailable() } returns true
         every { networkManager.isUnmeteredConnection() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any()) }
+        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any(), any()) }
     }
 
     // --- queueAndSend: Wi-Fi SSID ---
@@ -219,7 +228,7 @@ class SyncManagerTest {
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -236,12 +245,15 @@ class SyncManagerTest {
 
         coEvery { networkManager.isNetworkAvailable() } returns true
         every { networkManager.isConnectedToSsid("HomeNetwork") } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any()) }
+        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any(), any()) }
     }
 
     // --- queueAndSend: VPN ---
@@ -264,7 +276,7 @@ class SyncManagerTest {
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -281,12 +293,15 @@ class SyncManagerTest {
 
         coEvery { networkManager.isNetworkAvailable() } returns true
         every { networkManager.isVpnConnected() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         val payload = JSONObject().put("lat", 52.0)
         syncManager.queueAndSend(1L, payload)
 
-        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any()) }
+        coVerify { networkManager.sendToEndpoint(any(), "https://example.com", any(), any(), any()) }
     }
 
     // --- queueAndSend: periodic mode ---
@@ -309,7 +324,7 @@ class SyncManagerTest {
         syncManager.queueAndSend(1L, payload)
 
         verify { dbHelper.addToQueue(1L, any()) }
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     // --- queueAndSend: auth headers and HTTP method ---
@@ -329,11 +344,14 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.queueAndSend(1L, JSONObject().put("lat", 52.0))
 
-        coVerify { networkManager.sendToEndpoint(any(), any(), headers, "GET") }
+        coVerify { networkManager.sendToEndpoint(any(), any(), headers, "GET", ApiFormat.FIELD_MAPPED) }
     }
 
     // --- queueAndSend: successful sync updates lastSuccessfulSyncTime ---
@@ -351,7 +369,10 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         assertEquals(0L, syncManager.lastSuccessfulSyncTime)
 
@@ -373,7 +394,10 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.queueAndSend(1L, JSONObject().put("lat", 52.0))
 
@@ -415,7 +439,7 @@ class SyncManagerTest {
             QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)
         )
         every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.manualFlush()
 
@@ -439,11 +463,47 @@ class SyncManagerTest {
             QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)
         )
         every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.manualFlush()
 
         assertEquals(1, queueStateChangedCalls)
+    }
+
+    @Test
+    fun `manualFlush serializes concurrent queue drains`() = scope.runTest {
+        syncManager.updateConfig(
+            endpoint = "https://example.com",
+            syncIntervalSeconds = 0,
+            retryIntervalSeconds = 30,
+            isOfflineMode = false,
+            syncCondition = "any",
+            syncSsid = "",
+            authHeaders = emptyMap()
+        )
+
+        val releaseSend = CompletableDeferred<Unit>()
+        var queueAvailable = true
+        every { dbHelper.getQueuedCount() } answers { if (queueAvailable) 1 else 0 }
+        every { dbHelper.getQueuedLocations(50) } answers {
+            if (queueAvailable) listOf(QueuedLocation(1L, 100L, payloadString(52.0), 0)) else emptyList()
+        }
+        every { dbHelper.removeBatchFromQueue(listOf(1L)) } answers { queueAvailable = false }
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } coAnswers {
+            releaseSend.await()
+            true
+        }
+
+        val first = async { syncManager.manualFlush() }
+        advanceUntilIdle()
+        val second = async { syncManager.manualFlush() }
+
+        releaseSend.complete(Unit)
+        first.await()
+        second.await()
+
+        coVerify(exactly = 1) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
+        verify(exactly = 1) { dbHelper.removeBatchFromQueue(listOf(1L)) }
     }
 
     @Test
@@ -461,13 +521,13 @@ class SyncManagerTest {
         val item = QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)
         // Always return the same item (it stays in queue after failure)
         every { dbHelper.getQueuedLocations(50) } returns listOf(item)
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns false
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns false
 
         syncManager.manualFlush()
 
         // Should only fetch ONE batch, not loop 10 times re-fetching the same failing item
         verify(exactly = 1) { dbHelper.getQueuedLocations(50) }
-        coVerify(exactly = 1) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
     }
 
     // --- getCachedQueuedCount ---
@@ -546,7 +606,7 @@ class SyncManagerTest {
         // Always return items - loop should still stop at batch 10
         val item = QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)
         every { dbHelper.getQueuedLocations(50) } returns listOf(item)
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.manualFlush()
 
@@ -568,11 +628,11 @@ class SyncManagerTest {
         // 25 items → 3 chunks (10 + 10 + 5)
         val items = (1L..25L).map { QueuedLocation(it, it + 100, """{"lat":52.0}""", 0) }
         every { dbHelper.getQueuedLocations(50) } returnsMany listOf(items, emptyList())
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.manualFlush()
 
-        coVerify(exactly = 25) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 25) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
         // 3 chunks → 3 removeBatchFromQueue calls
         verify(exactly = 3) { dbHelper.removeBatchFromQueue(any()) }
     }
@@ -697,7 +757,7 @@ class SyncManagerTest {
             listOf(QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)),
             emptyList()
         )
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
         every { dbHelper.removeBatchFromQueue(any()) } answers { queuedCount = 0 }
 
         syncManager.startPeriodicSync()
@@ -730,18 +790,18 @@ class SyncManagerTest {
             listOf(QueuedLocation(1L, 100L, """{"lat":52.0}""", 0)),
             emptyList()
         )
-        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any()) } returns true
+        coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
         every { dbHelper.removeBatchFromQueue(any()) } answers { queuedCount = 0 }
 
         syncManager.startPeriodicSync()
 
         // Before interval elapses - no sync yet
         advanceTimeBy(30_000)
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
 
         // After interval elapses - sync happens
         advanceTimeBy(31_000)
-        coVerify(atLeast = 1) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(atLeast = 1) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
         syncManager.stopPeriodicSync()
     }
 
@@ -762,7 +822,7 @@ class SyncManagerTest {
         syncManager.startPeriodicSync()
         advanceTimeBy(5_000)
 
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
         syncManager.stopPeriodicSync()
     }
 
@@ -784,7 +844,7 @@ class SyncManagerTest {
         syncManager.startPeriodicSync()
         advanceTimeBy(5_000)
 
-        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) }
         syncManager.stopPeriodicSync()
     }
 
@@ -871,6 +931,9 @@ class SyncManagerTest {
         )
 
         coEvery { networkManager.isNetworkAvailable() } returns true
+        val queued = listOf(QueuedLocation(11L, 1L, payloadString(52.0), 0))
+        every { dbHelper.getQueuedCount() } returnsMany listOf(1, 0, 0)
+        every { dbHelper.getQueuedLocations(50) } returnsMany listOf(queued, emptyList())
         coEvery { networkManager.sendToEndpoint(any(), any(), any(), any(), any()) } returns true
 
         syncManager.queueAndSend(1L, JSONObject().put("lat", 52.0))
@@ -928,4 +991,6 @@ class SyncManagerTest {
         field.isAccessible = true
         return field.get(syncManager)
     }
+
+    private fun payloadString(lat: Double): String = JSONObject().put("lat", lat).toString()
 }

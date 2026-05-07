@@ -71,6 +71,7 @@ class LocationForegroundService : Service() {
     @Volatile private var lastScreenOnSyncAtMs: Long = 0L
     @Volatile private var lastScreenOffAtMs: Long = 0L
     @Volatile private var screenOffPollingIntervalMs: Long = 0L
+    @Volatile private var screenOffSyncIntervalSeconds: Int = 0
     private val screenOffRecentLocations = ArrayDeque<Location>(3)
     @Volatile private var screenOffIdleAnchorLocation: Location? = null
     @Volatile private var screenOffIdlePaused: Boolean = false
@@ -540,11 +541,15 @@ class LocationForegroundService : Service() {
 
     private fun getEffectiveSyncIntervalSeconds(): Int {
         if (!::config.isInitialized) return 0
-        val pollingSeconds = ceil(getEffectiveIntervalMs() / 1000.0).toInt()
-        return if (isScreenOff || isScreenOffMediumModeActive) {
-            maxOf(config.syncIntervalSeconds, pollingSeconds)
-        } else {
-            config.syncIntervalSeconds
+        if (!isScreenOff || !isScreenOffMediumModeActive) return config.syncIntervalSeconds
+        return screenOffSyncIntervalSeconds.takeIf { it > 0 } ?: getBaseSleepSyncIntervalSeconds()
+    }
+
+    private fun getBaseSleepSyncIntervalSeconds(): Int {
+        if (!::config.isInitialized) return 0
+        return when {
+            config.syncIntervalSeconds <= 0 -> config.screenOffCheckIntervalSeconds.coerceAtLeast(1)
+            else -> maxOf(config.syncIntervalSeconds, config.screenOffCheckIntervalSeconds.coerceAtLeast(1))
         }
     }
 
@@ -636,6 +641,7 @@ class LocationForegroundService : Service() {
 
     private fun initializeScreenStatePolicyOnStart() {
         screenOffPollingIntervalMs = getBaseIntervalMs()
+        screenOffSyncIntervalSeconds = config.syncIntervalSeconds
         screenOffRecentLocations.clear()
         isScreenOffMediumModeActive = false
         lastScreenOffAtMs = if (isScreenOff) SystemClock.elapsedRealtime() else 0L
@@ -650,6 +656,7 @@ class LocationForegroundService : Service() {
             normalizeActivePollingIntervalForCurrentState()
         } else {
             screenOffPollingIntervalMs = getBaseIntervalMs()
+            screenOffSyncIntervalSeconds = config.syncIntervalSeconds
         }
     }
 
@@ -659,6 +666,7 @@ class LocationForegroundService : Service() {
             normalizeActivePollingIntervalForCurrentState()
         } else {
             screenOffPollingIntervalMs = getBaseIntervalMs()
+            screenOffSyncIntervalSeconds = config.syncIntervalSeconds
         }
     }
 
@@ -666,6 +674,7 @@ class LocationForegroundService : Service() {
         isScreenOffMediumModeActive = false
         screenOffRecentLocations.clear()
         screenOffPollingIntervalMs = getBaseIntervalMs()
+        screenOffSyncIntervalSeconds = config.syncIntervalSeconds
     }
 
     private fun normalizeActivePollingIntervalForCurrentState() {
@@ -673,6 +682,28 @@ class LocationForegroundService : Service() {
         val baseIntervalMs = getBaseIntervalMs()
         val currentIntervalMs = screenOffPollingIntervalMs.takeIf { it > 0L } ?: baseIntervalMs
         screenOffPollingIntervalMs = maxOf(currentIntervalMs, baseIntervalMs)
+        if (isScreenOff) {
+            val baseSyncSeconds = getBaseSleepSyncIntervalSeconds()
+            val currentSyncSeconds = screenOffSyncIntervalSeconds.takeIf { it > 0 } ?: baseSyncSeconds
+            screenOffSyncIntervalSeconds = maxOf(currentSyncSeconds, baseSyncSeconds)
+        }
+    }
+
+    private fun maybeAdvanceScreenOffSyncInterval() {
+        if (!isScreenOff || !isScreenOffMediumModeActive || !::config.isInitialized) return
+
+        val currentSyncSeconds = screenOffSyncIntervalSeconds.takeIf { it > 0 } ?: getBaseSleepSyncIntervalSeconds()
+        val multiplier = config.screenOffBackoffMultiplier.coerceIn(1.5, 3.0)
+        val maxSyncSeconds = (getConfiguredScreenOffMaxIntervalMs() / 1000L).toInt()
+        val nextSyncSeconds = minOf(
+            ceil(currentSyncSeconds * multiplier).toInt(),
+            maxSyncSeconds
+        )
+        if (nextSyncSeconds == currentSyncSeconds) return
+
+        screenOffSyncIntervalSeconds = nextSyncSeconds
+        AppLogger.i(TAG, "Screen-off sync interval increased: ${currentSyncSeconds}s -> ${nextSyncSeconds}s")
+        applyScreenStateSyncPolicy()
     }
 
     private fun maybeAdvanceScreenOffPollingInterval() {
@@ -687,6 +718,7 @@ class LocationForegroundService : Service() {
         if (nextIntervalMs == currentIntervalMs) return
 
         screenOffPollingIntervalMs = nextIntervalMs
+        maybeAdvanceScreenOffSyncInterval()
         applyScreenStateSyncPolicy()
         if (!isLocationUpdatesRegistered() || isWifiPaused || isMotionlessPaused) return
 
@@ -739,6 +771,7 @@ class LocationForegroundService : Service() {
             val previousIntervalMs = screenOffPollingIntervalMs
             isScreenOffMediumModeActive = false
             screenOffPollingIntervalMs = initialIntervalMs
+            screenOffSyncIntervalSeconds = config.syncIntervalSeconds
             applyScreenStateSyncPolicy()
 
             if (previousIntervalMs != initialIntervalMs && isLocationUpdatesRegistered() && !isWifiPaused && !isMotionlessPaused) {
@@ -760,6 +793,16 @@ class LocationForegroundService : Service() {
         }
         setupLocationUpdates()
         AppLogger.i(TAG, "Screen turned on at max stationary backoff - requesting fresh location immediately")
+    }
+
+    private fun requestImmediateLocationAfterLongSleepReset() {
+        if (isWifiPaused || isMotionlessPaused) return
+        clearScreenOffIdlePauseState()
+        if (isLocationUpdatesRegistered()) {
+            stopLocationUpdates()
+        }
+        setupLocationUpdates()
+        AppLogger.i(TAG, "Screen turned on after long sleep - stationary backoff reset and fresh location requested immediately")
     }
 
     private fun applyScreenStateLocationPolicy(startImmediatelyOnRestart: Boolean = true) {
@@ -808,7 +851,9 @@ class LocationForegroundService : Service() {
         clearScreenOffModeState()
         clearScreenOffIdlePauseTracking()
         resumeFromScreenOffIdlePause()
-        if (!exceededLongSleepThreshold && shouldRequestImmediateLocation) {
+        if (exceededLongSleepThreshold) {
+            requestImmediateLocationAfterLongSleepReset()
+        } else if (shouldRequestImmediateLocation) {
             requestImmediateLocationAfterMaxBackoffOnScreenOn()
         } else {
             applyScreenStateLocationPolicy(startImmediatelyOnRestart = false)
